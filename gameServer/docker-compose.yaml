@@ -1,0 +1,20 @@
+services:
+  app:
+    image: "poker_server-app:latest"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./conf:/app/conf
+      - ./players:/app/players
+    environment:
+      # Valid values showcase/slow/moderate/fast
+      - GAME_SPEED=fast
+      # Tell the app service where to find the EXTERNAL reports port
+      - REPORTS_PORT=5000
+  reports:
+    image: "poker_server-reports:latest"
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./logs:/app/logs

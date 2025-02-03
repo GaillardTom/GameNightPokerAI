@@ -32,13 +32,7 @@ def add_unique_count(df):
 
     
     
-def add_four_of_a_kind_count(df):
-    #Check to see if there's a four of a kind in the hand
-    #A four of a kind is a hand with 4 cards of the same rank
-    #This function will add a new column "four_of_a_kind_count" with 1 if four of a kind in a hand else 0 
-    tmp_card = df[["C1", "C2", "C3", "C4", "C5"]]  # Extract card rank columns
-    df["four_of_a_kind_count"] = tmp_card.apply(lambda s: sum([list(s).count(x) == 4 for x in set(s)]), axis=1)  # Count four of a kind in each hand
-    return df
+
 def add_pair_count(df):
     """
     Adds a new column "pair_count" to the given DataFrame, counting the number of pairs present in each hand.
@@ -51,7 +45,7 @@ def add_pair_count(df):
         pd.DataFrame: The updated DataFrame with an additional column "pair_count".
     """
     tmp_card = df[["C1", "C2", "C3", "C4", "C5"]]  # Extract card rank columns instead of suit
-    df["pair_count"] = tmp_card.apply(lambda s: sum([list(s).count(x) == 2 for x in set(s)]), axis=1)  # Count pairs in each hand
+    df["pair_count"] = tmp_card.apply(lambda s: len(s) - len(np.unique(s)), axis=1)  # Count pairs in each hand
     return df 
 
 def add_three_of_a_kind_count(df):
@@ -70,32 +64,6 @@ def add_three_of_a_kind_count(df):
     df["three_of_a_kind_count"] = tmp_card.apply(lambda s: sum([list(s).count(x) == 3 for x in set(s)]), axis=1)  # Count three-of-a-kind in each hand
     return df
 
-def add_full_house_count(df):
-    #Check to see if there's a full house in the hand
-    #A full house is a hand with 3 of a kind and a pair
-    #This function will add a new column "full_house_count" with 1 if full house in a hand else 0 
-    tmp_card = df[["C1", "C2", "C3", "C4", "C5"]]  # Extract card rank columns
-    df["full_house_count"] = tmp_card.apply(lambda s: sum([list(s).count(x) == 3 for x in set(s)]) and sum([list(s).count(x) == 2 for x in set(s)]), axis=1)  # Count full house in each hand
-    return df
-
-    
-    
-    
-    
-
-
-# Helper function to count the number of straights in a hand
-# A straight is a sequence of 5 consecutive card ranks (e.g., 2, 3, 4, 5, 6)
-# This function counts the length of the longest 
-# straight in a hand (if any are more than 3 cards)
-def count_straights(hand):
-        sorted_hand = sorted(hand)
-
-        #Check to see if there's a straight of 5 cards
-        if len(set(sorted_hand)) == 5 and sorted_hand[4] - sorted_hand[0] == 4:
-            return 1
-        else:
-            return 0
 
 def add_straight_count(df):
     """
@@ -109,10 +77,7 @@ def add_straight_count(df):
         pd.DataFrame: The updated DataFrame with an additional column "straight_count".
     """
     tmp_card = df[["C1", "C2", "C3", "C4", "C5"]]  # Extract card rank columns
-    #if there's a straight of 3 or more cards, then there's a straight and it will count them
-    
-    df["straight_count"] = tmp_card.apply(count_straights, axis=1)  # Count straights in each hand
-
+    df["straight_count"] = tmp_card.apply(lambda s: 1 if sorted(s) == list(range(min(s), min(s) + 5)) else 0, axis=1)  # 1 if there's a straight, 0 if not for all hands in df
 
     return df
 # Main function to preprocess the data for further analysis and classification
@@ -144,11 +109,14 @@ def pre_process_data(data):
     df = add_unique_count(df)  # Add the unique suit count column for flush detection
     df = add_pair_count(df)  # Add the pair count column for pair detection 
     df = add_three_of_a_kind_count(df) # Add the three of a kind count column for three of a kind detection 
-    df = add_full_house_count(df) # Add the full house count column for full house detection
     df = add_straight_count(df)  # Add the straight count column for straight detection
-    df = add_four_of_a_kind_count(df) # Add the four of a kind count column for four of a kind detection
-
 
     return df
 
 
+
+if __name__ == "__main__": 
+    try: 
+        print("Preprocess.py with straight, pair and three of a kind") 
+    except KeyboardInterrupt as e: 
+        print("User interrupted the program")

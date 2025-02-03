@@ -1,0 +1,24 @@
+ante: 0
+blind_structure: null
+initial_stack: 100000
+max_round: 20
+small_blind: 250
+show_hole_cards: True
+ai_players:
+# A non model player that will only call everythng
+- name: Call Everything Player
+  path: /app/pypokergui/sample_player/call_everthing_player_setup.py
+  enabled: False
+# A non model player that behaves randomly - has as much chance as folding as raising  
+- name: Random Player
+  path: /app/pypokergui/sample_player/random_player_setup.sh
+  enabled: False
+# A Sample player that is setup in the same way your submission should be setup
+- name: AI Player
+  dir: /app/pypokergui/sample_player/team_ai_model
+  enabled: True
+# TODO: Add your player here
+- name: Team Name
+  # Load preprocess.py / pre_flop_strategy.py / flop_strategy.py / model.pkl from directory 
+  dir: /app/players/team_name
+  enabled: True  
