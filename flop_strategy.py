@@ -156,7 +156,7 @@ def get_card_action(
         elif best_hand >= highest_hand and best_hand < 2:
             if checkRaisePreflop(action_histories) and min_amount <= 5000:
                 logger.info(f"Hand strength {best_hand} is a pair but we raised preflop so let's keep it - raising")
-                return "raising", 2000
+                return "raising", min_amount + 1000
             if min_amount < 10000: 
                 return "call", min_amount
             else: 
@@ -193,8 +193,6 @@ def get_card_action(
             else: 
                 if OPP_DRY:
                     return "call", min_amount
-                logger.info(f"Hand strength {best_hand} is strong - raising")
-                return "raise", (max_amount * 0.5)
         elif 1 <= best_hand < 2:
             if min_amount < max_amount * 0.09 and min_amount <= 500:
                 logger.info(f"Hand strength {best_hand} is weak   - calling")
