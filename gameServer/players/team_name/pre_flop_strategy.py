@@ -168,9 +168,23 @@ def get_pre_flop_action(
                 logger.info("Fold as the raise is too much")
                 return "fold", 0
        
-        elif isColorSame() and all(value >= 8  for value in values):
+        elif isColorSame() and any(value >= 8  for value in values):
             if min_amount < max_amount * 0.05:
                 logger.info("Call as we have same color")
+                return "call", min_amount
+            else:
+                logger.info("Fold as the raise is too much")
+                return "fold", 0
+        elif isColorSame(): 
+            if min_amount < max_amount * 0.02:
+                logger.info("Call as we have same color")
+                return "call", min_amount
+            else:
+                logger.info("Fold as the raise is too much")
+                return "fold", 0
+        elif all(value > 9 for value in values):
+            if min_amount < max_amount * 0.05:
+                logger.info("Call as both cards are high")
                 return "call", min_amount
             else:
                 logger.info("Fold as the raise is too much")
@@ -185,7 +199,7 @@ def get_pre_flop_action(
         elif all(value > 9 for value in values):
             logger.info("raise as both cards are high")
             return "raise", max_amount * 0.034
-        elif isColorSame() and all(value >= 8  for value in values):
+        elif isColorSame() and any(value >= 9  for value in values):
             if min_amount < max_amount * 0.05:
                 logger.info("Call as we have same color")
                 return "raise", max_amount * 0.05
@@ -222,7 +236,7 @@ def get_pre_flop_action(
             else: 
                 logger.info("Fold as the raise is higher than 40% of the max amount")
                 return "fold", 0
-        elif isColorSame() and all(value >= 8  for value in values):
+        elif isColorSame() and any(value >= 10  for value in values):
             if min_amount < 40000:
                 logger.info("Call as we have same color")
                 return "call", min_amount
