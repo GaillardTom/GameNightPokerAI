@@ -175,8 +175,11 @@ def get_card_action(
                         return "call", min_amount
                     else: 
                         if not OPP_DRY:
-                            logger.info(f"Hand strength {best_hand} is a pair and opp passive - raising")
-                            return "raise", 500
+                            if min_amount <= 1500:
+                                logger.info(f"Hand strength {best_hand} is a pair and opp passive - raising")
+                                return "raise", min_amount * 2
+                            else:
+                                return "call", min_amount
                         else:
                             return "call", min_amount
                 else:
