@@ -88,6 +88,9 @@ def get_card_action(
     
     # Function to get the latest action
     def get_last_action(): 
+        #Fix to check if the action_histories is empty
+        if(not action_histories):
+            return None
         for key, value in action_histories.items():
             if value != []:
                 return value[-1]
@@ -99,7 +102,9 @@ def get_card_action(
         #Check to see if we have raised during the preflop phase
         #If we have then we should call
         #If we have not then we should fold
-        
+        #Fix to check if the action_histories is empty hotfix
+        if not action_histories:
+            return False
         for action in action_histories.get("preflop", []):
             if action != []:
                 if action.get("action") == "RAISE":
@@ -109,6 +114,9 @@ def get_card_action(
     def sum_raises(action_histories, player_name):
         total_raises = 0  # Initialize the counter for raises
         
+        #Check to see if the action_histories is empty hotfix
+        if(not action_histories):
+            return 0
         # Loop through each phase in the action_histories
         for key, actions in action_histories.items():
             for action in actions:
@@ -123,7 +131,9 @@ def get_card_action(
     # Determine opponent's aggressiveness
     def is_opponent_aggressive():
         aggressive_count = 0 
-        
+        #Check to see if the action_histories is empty hotfix
+        if (not action_histories):
+            return False 
         # Loop through all the phases in the action_histories
         for key, actions in action_histories.items():
             for action in actions:
