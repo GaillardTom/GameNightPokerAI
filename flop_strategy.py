@@ -82,7 +82,7 @@ def get_card_action(
         if desired_raise > max_amount:
             return "raise", max_amount
         if desired_raise > min_amount and desired_raise < max_amount:
-            return "raise", max_amount * amount_percent
+            return "raise", desired_raise
         else:
             return "call", min_amount
     
