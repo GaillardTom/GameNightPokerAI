@@ -60,7 +60,7 @@ function checkLocalHost() {
                 console.log(`Response: ${response.statusCode}`);
                 if (response.statusCode === 200) {
                     console.log(`Poker game is up and running`);
-                    () => request(burp0_options, function (error, response, body) {
+                    request(burp0_options, function (error, response, body) {
                         console.log('statusCode:', response && response.statusCode);
                         console.log('error: ', error);
                         console.log('body: ', body);
@@ -131,6 +131,11 @@ function getWinPercentage(winner) {
 }    
 
 function InteractWithGame() {
+    ws = new WebSocket('ws://localhost:8000/pokersocket', {
+            headers: {
+                'Cookie': burp0_cookie
+            }
+        });
 
     ws.on('open', function open() {
         start_game = '{"type": "action_start_game"}'
@@ -173,6 +178,7 @@ async function startContainer() {
             if (retry < 3) {
                 retry++;
                 await stopContainer().then(() => {  
+
                     startContainer();
                 });
             } else {
@@ -180,7 +186,9 @@ async function startContainer() {
                 return;
             }
         }
-        }).then(() => { return true;} );
+        console.log("Container started: " + stdout);
+        return true;
+        }).then(() => { console.log("Container Started"); return true;} );
 }
 // function to stop the container using docker-compose down
 async function stopContainer() {
@@ -197,11 +205,8 @@ async function StartPokerGame(){
     await startContainer().then(() => {
         // console.log("Container started");
         //checkLocalHost()
-        ws = new WebSocket('ws://localhost:8000/pokersocket', {
-            headers: {
-                'Cookie': burp0_cookie
-            }
-        });
+        //checkLocalHost();
+       
 
         console.log("Interacting with game");
         InteractWithGame();
@@ -209,6 +214,9 @@ async function StartPokerGame(){
     }).catch((err) => {
         console.error(`Error starting container: ${err}`);
     });
+    checkLocalHost();
+    console.log("Interacting with game");
+    InteractWithGame();
     
     // .then((isRunning) => {
     //     if (isRunning) {
