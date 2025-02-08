@@ -74,9 +74,20 @@ def get_pre_flop_action(
     print(f"Pot: {pot}")
     print(f"max amounts: {max_amount}")
     
-    # Check for Ace
-    # Check for high cards (Ace, King, Queen)
-    if action_histories['preflop'][-1]:        
+     # Function to get the latest action
+    def get_last_action(): 
+        #Fix to check if the action_histories is empty
+        if(not action_histories):
+            return None
+        for key, value in action_histories.items():
+            if value != []:
+                return value[-1]
+        return None    
+
+    #Gonna have to rewrite this part to get the last action
+    if not action_histories:
+        last_action = None
+    elif action_histories['preflop'][-1]:        
         last_action = action_histories['preflop'][-1]['action']
     else: 
         last_action = 'SMALLBLIND'
