@@ -1,5 +1,7 @@
 **/node_modules
-
+**/dist
+**/__pycache__
+*/gameServer/*.txt
 **/logs
 */logs
 */*.gz
@@ -10,3 +12,5 @@ gameServer\poker_server_v20250129.tar.gz
 *.tar
 ./__pycache__
 **/temp
+**/test_results/*
+**/venv
