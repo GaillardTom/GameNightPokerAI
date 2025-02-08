@@ -61,6 +61,14 @@ def get_pre_flop_action(
         else: 
             values.append(card_rank_map[card[1]])
 
+    OPP_DRY = False
+    if min_amount < 0 or max_amount <= 0:
+        OPP_DRY = True
+        min_amount = 500
+        max_amount = 501
+        
+
+
     # Log the most informations possible to help debugging
     logger.info(f"Player {player_name} has hole cards {hole_cards}")
     logger.info(f"Min amount: {min_amount}")
@@ -68,12 +76,24 @@ def get_pre_flop_action(
     logger.info(f"Pot: {pot}")
     logger.info(f"max amounts: {max_amount}")
     #also print them to the console for testing
-    print(f"Player {player_name} has hole cards {hole_cards}")
-    print(f"Min amount: {min_amount}")
-    print(f"actions history {action_histories}")
-    print(f"Pot: {pot}")
-    print(f"max amounts: {max_amount}")
+    # print(f"Player {player_name} has hole cards {hole_cards}")
+    # print(f"Min amount: {min_amount}")
+    # print(f"actions history {action_histories}")
+    # print(f"Pot: {pot}")
+    # print(f"max amounts: {max_amount}")
     
+    # Function to determine the action to raise the player
+    #Take in the amount_percent between 0 and 1 and return the action and the amount 
+    def raise_player(amount_percent):
+        desired_raise = max_amount * amount_percent
+        if OPP_DRY: 
+            return "call", min_amount
+        if desired_raise > max_amount:
+            return "raise", max_amount
+        if desired_raise > min_amount and desired_raise < max_amount:
+            return "raise", desired_raise
+        else:
+            return "call", min_amount
      # Function to get the latest action
     def get_last_action(): 
         #Fix to check if the action_histories is empty
@@ -124,24 +144,24 @@ def get_pre_flop_action(
     #check if the cards are connected (potential straight)
     def checkPotentialStraight():
         return abs(values[0] - values[1]) <= 1
+
+        
+
     if last_action == 'SMALLBLIND':
-    #if True:
-        if isPair() and allValuesAbove(10) and isColorSame():
+
+        if (isPair() or isColorSame()) and allValuesAbove(10): 
             logger.info("Raise as both cards are high and we have a pair and same color")
-            return "raise", max_amount * 0.1
+            return  raise_player(0.1)
          # Check for pairs
         elif isPair():
             logger.info("Raise as we have a pair")
-            return "raise", max_amount * 0.015
+            return raise_player(0.015)
         elif allValuesAbove(10):
             logger.info("Raise as both cards are high")
-            return "raise", max_amount * 0.015
+            return  raise_player(0.015)
         elif any(value >= 11 for value in values):
             logger.info(f"Call as we have a high card {values[0], values[1]}")
             return "call", min_amount
-       
-        # Check if both cards are less than 5
-        # Check for connected cards (potential straight)
         elif checkPotentialStraight():
             if min_amount < max_amount * 0.05:
                 logger.info("Call as we have connected cards")
@@ -163,10 +183,9 @@ def get_pre_flop_action(
             else:
                 return "fold", 0
     elif last_action == "BIGBLIND":
-    # elif False:
         if isPair() and allValuesAbove(10):
             logger.info("Raise as both cards are high and we have a pair")
-            return "raise", max_amount * 0.1
+            return  raise_player(0.1)
         elif anyValueAbove(10):
             if min_amount < max_amount * 0.2:
                 logger.info("Call as we have a high card")
@@ -178,13 +197,9 @@ def get_pre_flop_action(
                 else:
                     logger.info("Fold as the raise is too high")
                     return "fold", 0
-        # Check for pairs
         elif isPair():
             logger.info("Raise as we have a pair")
-            return "raise", max_amount * 0.01
-        # Check if both cards are less than 5
-        
-        # Check for connected cards (potential straight)
+            return raise_player(0.01)
         elif checkPotentialStraight():
             if min_amount < max_amount * 0.05 and pot < 2000:
                 logger.info("Call as we have connected cards")
@@ -192,7 +207,6 @@ def get_pre_flop_action(
             else:
                 logger.info("Fold as the raise is too much")
                 return "fold", 0
-       
         elif isColorSame() and any(value >= 8  for value in values):
             if min_amount < max_amount * 0.05:
                 logger.info("Call as we have same color")
@@ -220,10 +234,10 @@ def get_pre_flop_action(
     elif last_action == "CALL":
         if isPair(): 
             logger.info("Raise a bit as we have a pair")
-            return "raise", max_amount * 0.02
+            return raise_player(0.02)
         elif allValuesAbove(9):
             logger.info("raise as both cards are high")
-            return "raise", max_amount * 0.034
+            return raise_player(0.034)
         elif isColorSame() and anyValueAbove(8):
             return "call", min_amount
         elif anyValueAbove(10):
@@ -244,26 +258,14 @@ def get_pre_flop_action(
                 return "fold", 0
     else:
         if isPair() and values[0] == 14:
-            if max_amount * 0.2 >= min_amount:
                 logger.info("Raise as both cards are high and we have a pair of Aces")
-                return "raise", max_amount * 0.2
-            else: 
-                logger.info("Calling the preflop as we have a pair of Aces")
-                return "call", min_amount
+                return raise_player(0.2)
         if isPair() and allValuesAbove(10):
-            if max_amount * 0.1 >= min_amount:
                 logger.info("Call as both cards are high and we have a pair")
-                return "raise", max_amount * 0.1
-            else: 
-                logger.info("Calling the preflop")
-                return "call", min_amount
+                return raise_player(0.1)
         elif allValuesAbove(9) and isColorSame():
-            if max_amount * 0.1 >= min_amount:
                 logger.info("Call as both cards are high and we have a pair")
-                return "raise", max_amount * 0.1
-            else: 
-                logger.info("Calling the preflop")
-                return "call", min_amount
+                return raise_player(0.1)
         elif isPair(): 
             if min_amount <= 50000:
                 logger.info("Call as we have a pair and raise is less than 40% of the max amount")
