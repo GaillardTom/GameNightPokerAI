@@ -7,12 +7,12 @@ from datetime import datetime
 import requests
 
 retry = 0
-MAX_GAMES = 3
-TEAM_NAME= "Team Name"
+MAX_GAMES = 100
+TEAM_NAME = "35 Signals Regiment"
 date = datetime.today().strftime("%d_%m_%H_%M_%S")
 PATH_TO_WRITE = f"latest_game_{date}.txt"
 print("Path to write: ", PATH_TO_WRITE)
-print(f"RUNNING FOR {MAX_GAMES} ITERATIONS LOOKING AT PLAYER: {TEAM_NAME}") 
+print(f"RUNNING FOR {MAX_GAMES} ITERATIONS LOOKING AT PLAYER: {TEAM_NAME}")
 
 
 burp0_cookie = "_xsrf=2|9ab36512|93afadbdcf83cbdebda5a1394a3fa659|1738818521"
@@ -31,17 +31,17 @@ burp0_headers = {
 }
 
 
-
-
 async def get_winner(event_html):
     soup = bs(event_html, "html.parser")
     winner = soup.find_all("td")[1].text
     return winner
 
+
 def write_to_file(winner):
     with open("./test_results/"+PATH_TO_WRITE, "a") as file:
         file.write(winner + "\n")
-    
+
+
 def get_win_percentage(team_name):
     try:
         with open("./test_results/"+PATH_TO_WRITE, 'r') as file:
@@ -49,12 +49,14 @@ def get_win_percentage(team_name):
         lines = data.split('\n')
         win_count = lines.count(team_name)
         total_count = len(lines) - 1  # Subtract 1 for the last empty line
-        win_percentage = (win_count / total_count) * 100 if total_count > 0 else 0
+        win_percentage = (win_count / total_count) * \
+            100 if total_count > 0 else 0
         # print(f"Win percentage: {win_percentage}%")
         return win_percentage
     except FileNotFoundError:
         print("File not found")
         return 0
+
 
 async def stop_container():
     process = await asyncio.create_subprocess_shell(
@@ -67,6 +69,7 @@ async def stop_container():
         print(f"Error stopping container: {stderr.decode()}")
     else:
         print(f"Container stopped: {stdout.decode()}")
+
 
 async def start_container():
     global retry
@@ -96,7 +99,8 @@ def check_local_host():
         response = requests.get('http://localhost:8000')
         if response.status_code == 200:
             # print("Poker game is up and running")
-            response = requests.get("http://localhost:8000/pokersocket", headers=burp0_headers)
+            response = requests.get(
+                "http://localhost:8000/pokersocket", headers=burp0_headers)
             # print(f"statusCode: {response.status_code}")
             # print(f"body: {response.text}")
             return True
@@ -105,11 +109,11 @@ def check_local_host():
     except requests.RequestException as e:
         print(f"Error: {e}")
         return False
-    
+
 
 async def handle_connection(uri):
     # print("Connecting to server")
-    #Ajusted ping_interval and ping_timeout for keep alive bug
+    # Ajusted ping_interval and ping_timeout for keep alive bug
     async with websockets.connect(uri, ping_interval=60, ping_timeout=180) as ws:
         # print("Connected to ws server")
         # time.sleep(2)
@@ -118,9 +122,9 @@ async def handle_connection(uri):
         # time.sleep(2)
         while True:
             try:
-                #Added this to handle timeout
+                # Added this to handle timeout
                 async with asyncio.timeout(20):
-                    #Receive message from poker server
+                    # Receive message from poker server
                     message = await ws.recv()
                     # print(f"Received message: {message}")
                     json_data = json.loads(str(message))
@@ -150,14 +154,13 @@ async def handle_connection(uri):
         print("Stopping container")
         await stop_container()
 
+
 async def start_poker_game():
     await start_container()
     time.sleep(2)
     if check_local_host():
         await handle_connection('ws://localhost:8000/pokersocket')
         print(f"Current win percentage: {get_win_percentage(TEAM_NAME)} %")
-
-
 
 
 if __name__ == "__main__":
