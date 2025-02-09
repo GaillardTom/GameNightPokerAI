@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup as bs
 NUM_CONTAINERS = 10  # Number of container to spawn
 ITERATIONS = 20  # Iteration per container
 STARTING_PORT = 8001  # Starting port, keep 8000 free for manual testing
-TEAM_NAME = "Team Name"
+TEAM_NAME = "35 Signals Regiment"
 DATE = datetime.today().strftime("%d_%m_%H_%M_%S")
 PATH_TO_WRITE = f"latest_game_{DATE}.txt"
 print("Path to write: ", PATH_TO_WRITE)

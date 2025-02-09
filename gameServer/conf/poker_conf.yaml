@@ -16,9 +16,12 @@ ai_players:
 # A Sample player that is setup in the same way your submission should be setup
 - name: AI Player
   dir: /app/pypokergui/sample_player/team_ai_model
-  enabled: True
+  enabled: False
 # TODO: Add your player here
-- name: Team Name
+- name: Last model
+  dir: /app/players/last_model
+  enabled: True
+- name: 35 Signals Regiment
   # Load preprocess.py / pre_flop_strategy.py / flop_strategy.py / model.pkl from directory 
-  dir: /app/players/team_name
+  dir: /app/players/35rtrans
   enabled: True  
