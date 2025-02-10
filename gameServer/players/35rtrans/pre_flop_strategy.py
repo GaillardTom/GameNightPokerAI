@@ -1,5 +1,36 @@
+from random import randint, random
 
-from random import randint
+def evaluate_opponent_aggressiveness(action_histories, street):
+    """
+    Évalue le niveau d'agressivité de l'adversaire sur la base
+    des actions passées sur la street spécifiée (ex: 'preflop').
+
+    Paramètres:
+    - action_histories (dict): historique des actions par street
+    - street (str): 'preflop', 'flop', 'turn' ou 'river'
+
+    Retourne:
+    - float: un score d'agressivité (entre 0 et 1, plus proche de 1 = plus agressif)
+    """
+    if street not in action_histories or len(action_histories[street]) == 0:
+        return 0.5  # Valeur neutre si pas d'info
+
+    total_actions = 0
+    total_raises = 0
+
+    for act in action_histories[street]:
+        # On ignore les actions de l'IA pour cibler l'agressivité adverse
+        if act["name"] != "AI Player":
+            total_actions += 1
+            if act["action"] in ["RAISE", "BET"]:
+                total_raises += 1
+
+    if total_actions == 0:
+        return 0.5
+
+    aggressiveness_score = total_raises / total_actions
+    return max(0, min(1, aggressiveness_score))
+
 
 def get_pre_flop_action(
     player_name,
@@ -25,17 +56,10 @@ def get_pre_flop_action(
     - pot (float): The size of the main pot
     - side_pots (list): If playing against more than one player this is a side pot.
         [{'amount': 45, 'eligibles': ['Player 1']}]
-    - action_histories (dict):  A dict where the key is street of the game played so far. The value is a list of actions
-        that happened with the latest action being the last one in the list.
-        { "preflop": [
-            { "action": "SMALLBLIND", "amount": 10, "add_amount": 10, "uuid": "1", "name": "Random Player" },
-            { "action": "BIGBLIND", "amount": 20, "add_amount": 10, "uuid": "2", "name": "AI Player" },
-            { "action": "CALL", "amount": 20, "paid": 20, "uuid": "0", "name": "Call Everything Player" },
-            { "action": "FOLD", "uuid": "1", "name": "Random Player" },
-            { "action": "CALL", "amount": 20, "paid": 0, "uuid": "2", "name": "AI Player" }
-        ]}
+    - action_histories (dict):  A dict where the key is street of the game played so far.
+        { "preflop": [...], "flop": [...], "turn": [...], "river": [...] }
     - logger (DcmLoggerWrapper): A logger which will add messages to match report.
-        Methods avialble are:
+        Methods available are:
         * error(str)
         * warning(str)
         * info(str)
@@ -49,245 +73,262 @@ def get_pre_flop_action(
     Raises:
     None
     """
+    # -------------------------------------------------------------------------
+    # 1) Évaluer l'agressivité adverse et LOGGER l'historique préflop complet
+    # -------------------------------------------------------------------------
+    opponent_aggressiveness = evaluate_opponent_aggressiveness(action_histories, "preflop")
+    logger.info(f"[Preflop] Opponent aggressiveness: {opponent_aggressiveness:.2f}")
 
-    card_rank_map = {'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-                     '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13}
+    # Historique complet des actions préflop : on logge chaque action
+    preflop_actions = action_histories.get("preflop", [])
+    logger.info("=== Historique des actions (PRE-FLOP) ===")
+    for i, act in enumerate(preflop_actions):
+        logger.info(
+            f"Action #{i+1}: {act['action']} by {act['name']} "
+            f"(amount={act.get('amount',0)}, paid={act.get('paid',0)})"
+        )
 
-    # Get numerical values of both cards
+    # -------------------------------------------------------------------------
+    # 2) Conversion des cartes en valeurs numériques et logging de base
+    # -------------------------------------------------------------------------
+    card_rank_map = {
+        'A': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+        '6': 6, '7': 7, '8': 8, '9': 9,
+        'T': 10, 'J': 11, 'Q': 12, 'K': 13
+    }
     values = []
     for card in hole_cards:
-        if len(card) == 3: 
-            values.append([card_rank_map[card[1:]]])
-        else: 
+        # Ex: "S10" => len=3 => card[1:] => "10"
+        if len(card) == 3:
+            values.append(card_rank_map[card[1:]])
+        else:
             values.append(card_rank_map[card[1]])
 
-    # Log the most informations possible to help debugging
     logger.info(f"Player {player_name} has hole cards {hole_cards}")
-    logger.info(f"Min amount: {min_amount}")
-    logger.info(f"actions history {action_histories}")
-    logger.info(f"Pot: {pot}")
-    logger.info(f"max amounts: {max_amount}")
-    #also print them to the console for testing
-    print(f"Player {player_name} has hole cards {hole_cards}")
-    print(f"Min amount: {min_amount}")
-    print(f"actions history {action_histories}")
-    print(f"Pot: {pot}")
-    print(f"max amounts: {max_amount}")
-    
-    # Check for Ace
-    # Check for high cards (Ace, King, Queen)
-    if action_histories['preflop'][-1]:        
-        last_action = action_histories['preflop'][-1]['action']
-    else: 
-        last_action = 'SMALLBLIND'
-    print(last_action)
-    #Small fix for Ace so that it is considered as 14 instead of 1 (to better count the high cards)
-    if values[0] == 1: 
-        values[0] = 14
-    elif values[1] == 1: 
-        values[1] = 14
-    #We are the big blind 
+    logger.info(f"Min amount: {min_amount}, Max amount: {max_amount}, Pot: {pot}")
 
-    if min_amount <= 0: 
+    last_action = preflop_actions[-1]['action'] if preflop_actions else 'SMALLBLIND'
+    logger.info(f"Last preflop action: {last_action}")
+
+    # -------------------------------------------------------------------------
+    # 3) Ajustement min_amount / max_amount si incorrect
+    # -------------------------------------------------------------------------
+    if min_amount <= 0:
         min_amount = 1
-    elif max_amount <= 0: 
+    if max_amount <= 0:
         max_amount = 10
-    
 
-    #Helper function
+    # -------------------------------------------------------------------------
+    # 4) Fonctions internes (inchangées)
+    # -------------------------------------------------------------------------
     def isColorSame():
-        if hole_cards[0][0] == hole_cards[1][0]:
-            return True
-        return False
+        return hole_cards[0][0] == hole_cards[1][0]
+
     def isPair():
-        return values[0] == values[1]    
-    #Check if all cards are above a certain value
+        return values[0] == values[1]
+
     def allValuesAbove(lowest_card):
         return all(value > lowest_card for value in values)
-    #check if any cards is above a certain value
+
     def anyValueAbove(lowest_card):
         return any(value > lowest_card for value in values)
-    #check if all cards are below a certain value
+
     def allValuesBelow(highest_card):
-        return all(value < highest_card for value in values) 
-    #check if the cards are connected (potential straight)
+        return all(value < highest_card for value in values)
+
     def checkPotentialStraight():
-        return abs(values[0] - values[1]) <= 1
-    if last_action == 'SMALLBLIND':
-    #if True:
-        if isPair() and allValuesAbove(10) and isColorSame():
-            logger.info("Raise as both cards are high and we have a pair and same color")
-            return "raise", max_amount * 0.1
-         # Check for pairs
-        elif isPair():
-            logger.info("Raise as we have a pair")
-            return "raise", max_amount * 0.015
-        elif allValuesAbove(10):
-            logger.info("Raise as both cards are high")
-            return "raise", max_amount * 0.015
-        elif any(value >= 11 for value in values):
-            logger.info(f"Call as we have a high card {values[0], values[1]}")
-            return "call", min_amount
-       
-        # Check if both cards are less than 5
-        # Check for connected cards (potential straight)
-        elif checkPotentialStraight():
-            if min_amount < max_amount * 0.05:
-                logger.info("Call as we have connected cards")
-                return "call", min_amount
+        return abs(values[0] - values[1]) == 1
+
+    # Considérer l'As comme 14
+    for i in range(len(values)):
+        if values[i] == 1:  # As
+            values[i] = 14
+
+    # -------------------------------------------------------------------------
+    # 5) Catégorisation avancée de la main préflop (inspirée d'arbres de décision)
+    # -------------------------------------------------------------------------
+    def classify_preflop_hand():
+        """
+        Retourne un code de puissance (0=très faible, 5=ultra premium).
+        On s'inspire ici de ranges courantes.
+
+        Ex.:
+        - 5 => AA, KK, QQ, AKs
+        - 4 => JJ, TT, AKo, AQs, KQs
+        - 3 => paires moy. (77-99), AJs, broadways suités un peu moins forts
+        - 2 => petites paires (22-66), suited connectors
+        - 1 => mains faibles (A-little off, K9o...)
+        - 0 => trash complet
+        """
+        v1, v2 = sorted(values, reverse=True)
+        same_suit = isColorSame()
+
+        # Paires
+        if isPair():
+            if v1 == 14:  # AA
+                return 5
+            elif v1 == 13: # KK
+                return 5
+            elif v1 == 12: # QQ
+                return 5
+            elif v1 == 11: # JJ
+                return 4
+            elif v1 == 10: # TT
+                return 4
+            elif 7 <= v1 <= 9:
+                return 3
             else:
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        elif allValuesBelow(5):
-            if min_amount < max_amount * 0.02:
-                logger.info("Call as both cards are less than 5 but the raise is small")
-                return "call", min_amount
+                return 2
+
+        # Double broadway
+        def isBroadway(x): return x >= 10
+        if isBroadway(v1) and isBroadway(v2):
+            # AK, AQ, AJ, KQ, KJ, QJ, etc.
+            if v1 == 14 and v2 == 13:  # AK
+                return 5 if same_suit else 4
+            elif v1 == 14 and v2 == 12:  # AQ
+                return 5 if same_suit else 4
+            elif v1 == 13 and v2 == 12:  # KQ
+                return 4 if same_suit else 3
+            elif v1 == 14 and v2 == 11:  # AJ
+                return 4 if same_suit else 3
             else:
-                logger.info("Both hole cards are less than 5 and the raise is high so fold")
-                return "fold", 0
-        else:
-            if min_amount < max_amount * 0.05:
-                logger.info("Call as we have nothing but the raise is small")
-                return "call", min_amount 
+                return 3 if same_suit else 2
+
+        # Suited connectors
+        if same_suit and checkPotentialStraight():
+            # T9s, 98s, etc.
+            if v1 >= 10:
+                return 3
             else:
-                return "fold", 0
-    elif last_action == "BIGBLIND":
-    # elif False:
-        if isPair() and allValuesAbove(10):
-            logger.info("Raise as both cards are high and we have a pair")
-            return "raise", max_amount * 0.1
-        elif anyValueAbove(10):
-            if min_amount < max_amount * 0.2:
-                logger.info("Call as we have a high card")
-                return "call", min_amount
-            else: 
-                if 1 == randint(0, 3):
-                    logger.info(f"Call as we have a high card {values[0], values[1]} and god is on our side")
+                return 2
+
+        # A-x suited plus faible
+        if v1 == 14 and same_suit and v2 <= 9:
+            return 2
+
+        # A-little off / K9 / Q8 ...
+        if v1 == 14 and v2 >= 10:
+            # A + broadway kicker => 3
+            return 3
+        if v1 == 14 and v2 <= 9:
+            return 1
+
+        # Connectés off
+        if checkPotentialStraight():
+            return 1
+
+        # Sinon trash
+        return 0
+
+    hand_category = classify_preflop_hand()
+    logger.info(f"Preflop hand category: {hand_category}")
+
+    # Pour moduler la relance en fonction du pot (plus le pot est grand, plus on peut raiser)
+    pot_factor = pot / 500 if pot > 0 else 1.0
+
+    # -------------------------------------------------------------------------
+    # 6) Décision de base selon la catégorie + agressivité
+    # -------------------------------------------------------------------------
+    def base_decision():
+        # Catégorie 5 => ultra-premium (AA, KK, QQ, AKs)
+        if hand_category == 5:
+            logger.info("Ultra-premium => raise ou trap call")
+            if opponent_aggressiveness > 0.6:
+                # Slowplay vs aggro
+                if min_amount < max_amount * 0.3:
                     return "call", min_amount
                 else:
-                    logger.info("Fold as the raise is too high")
+                    return "call", min_amount
+            else:
+                # Passive => on mise fort
+                raise_percent = min(0.3 + 0.2 * pot_factor, 0.5)
+                if raise_percent < 0.1:
+                    raise_percent = 0.1
+                if min_amount > max_amount * 0.5:
+                    return "call", min_amount
+                return "raise", max_amount * raise_percent
+
+        # Catégorie 4 => premium/strong (JJ, TT, AKo, AQs, KQs)
+        elif hand_category == 4:
+            logger.info("Premium/strong => raise standard ou call si trop cher")
+            if opponent_aggressiveness < 0.3:
+                raise_percent = min(0.1 + 0.15 * pot_factor, 0.25)
+            else:
+                raise_percent = min(0.08 + 0.1 * pot_factor, 0.18)
+
+            if min_amount > max_amount * 0.4:
+                return "call", min_amount
+            return "raise", max_amount * raise_percent
+
+        # Catégorie 3 => mains moyennes fortes (77-99, broadways suités moins forts)
+        elif hand_category == 3:
+            logger.info("Good medium => raise modérée ou call/fold si trop cher")
+            raise_percent = min(0.05 + 0.1 * pot_factor, 0.15)
+            if min_amount > max_amount * 0.4:
+                if random() < 0.7:
+                    return "call", min_amount
+                else:
                     return "fold", 0
-        # Check for pairs
-        elif isPair():
-            logger.info("Raise as we have a pair")
-            return "raise", max_amount * 0.01
-        # Check if both cards are less than 5
-        
-        # Check for connected cards (potential straight)
-        elif checkPotentialStraight():
-            if min_amount < max_amount * 0.05 and pot < 2000:
-                logger.info("Call as we have connected cards")
+            else:
+                desired_raise = max_amount * raise_percent
+                if desired_raise <= min_amount:
+                    return "call", min_amount
+                else:
+                    return "raise", desired_raise
+
+        # Catégorie 2 => spéculatives (petites paires, suited connectors)
+        elif hand_category == 2:
+            logger.info("Speculative => call si pas cher, small raise possible, else fold")
+            if min_amount < max_amount * 0.1:
+                if not (opponent_aggressiveness > 0.6):
+                    # 20% chance de small raise
+                    if random() < 0.2:
+                        return "raise", max(min_amount * 2, max_amount * 0.05)
                 return "call", min_amount
             else:
-                logger.info("Fold as the raise is too much")
                 return "fold", 0
-       
-        elif isColorSame() and any(value >= 8  for value in values):
+
+        # Catégorie 1 => mains faibles
+        elif hand_category == 1:
+            logger.info("Weak => fold la plupart du temps, call si mise minime")
             if min_amount < max_amount * 0.05:
-                logger.info("Call as we have same color")
-                return "call", min_amount
-            else:
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        elif isColorSame(): 
+                if random() < 0.5:
+                    return "call", min_amount
+            return "fold", 0
+
+        # Catégorie 0 => trash total
+        else:
+            logger.info("Trash => fold, sauf si min raise insignifiante")
             if min_amount < max_amount * 0.02:
-                logger.info("Call as we have same color")
                 return "call", min_amount
-            else:
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        elif allValuesAbove(10):
-            if min_amount < max_amount * 0.05:
-                logger.info("Call as both cards are high")
-                return "call", min_amount
-            else:
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        else:
-            logger.info("Fold as we got nothing good and we are the small blind")
             return "fold", 0
-    elif last_action == "CALL":
-        if isPair(): 
-            logger.info("Raise a bit as we have a pair")
-            return "raise", max_amount * 0.02
-        elif allValuesAbove(9):
-            logger.info("raise as both cards are high")
-            return "raise", max_amount * 0.034
-        elif isColorSame() and anyValueAbove(8):
-            return "call", min_amount
-        elif anyValueAbove(10):
-            if min_amount < 5000:
-                logger.info("call as we have a high card")
-                return "call", min_amount
-            else: 
-                logger.info("Got high card but Fold as the raise is too high")
-                return "fold", 0
-        elif abs(values[0] - values[1]) <= 2:
-            return "call", min_amount 
-        else:
-            if min_amount < 1000:
-                logger.info("Call as we have nothing but the raise is small")
-                return "call", min_amount
-            else: 
-                logger.info("Fold as the raise is too high")
-                return "fold", 0
-    else:
-        if isPair() and values[0] == 14:
-            if max_amount * 0.2 >= min_amount:
-                logger.info("Raise as both cards are high and we have a pair of Aces")
-                return "raise", max_amount * 0.2
-            else: 
-                logger.info("Calling the preflop as we have a pair of Aces")
-                return "call", min_amount
-        if isPair() and allValuesAbove(10):
-            if max_amount * 0.1 >= min_amount:
-                logger.info("Call as both cards are high and we have a pair")
-                return "raise", max_amount * 0.1
-            else: 
-                logger.info("Calling the preflop")
-                return "call", min_amount
-        elif allValuesAbove(9) and isColorSame():
-            if max_amount * 0.1 >= min_amount:
-                logger.info("Call as both cards are high and we have a pair")
-                return "raise", max_amount * 0.1
-            else: 
-                logger.info("Calling the preflop")
-                return "call", min_amount
-        elif isPair(): 
-            if min_amount <= 50000:
-                logger.info("Call as we have a pair and raise is less than 40% of the max amount")
-                return "call", min_amount
-            else: 
-                logger.info("Fold as the raise is higher than 40% of the max amount")
-                return "fold", 0
-        elif isColorSame() and anyValueAbove(9):
-            if min_amount < 40000:
-                logger.info("Call as we have same color")
-                return "call", min_amount
-            else: 
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        elif allValuesAbove(10):
-            if(min_amount < max_amount * 0.6):
-                logger.info("Call as both cards are high")
-                return "call", min_amount
-            else: 
-                logger.info("Fold as the raise is too much but cards are high")
-                return "fold", 0
-        elif anyValueAbove(10):
-            if(min_amount <= 5000 and pot < 4000):
-                logger.info("Call as we have a high card")
-                return "call", min_amount
-            else: 
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        elif abs(values[0] - values[1]) <= 2:
-            if(min_amount < max_amount * 0.2 and pot <= 5000):
-                logger.info("Call as we have connected cards")
-                return "call", min_amount
+
+    # On obtient la décision de base
+    decision_action, decision_amount = base_decision()
+
+    # -------------------------------------------------------------------------
+    # 7) Ajustements finaux pour conserver un style agressif / bluff
+    # -------------------------------------------------------------------------
+    # (a) Diminuer la fréquence des fold pour "call n’importe quoi"
+    if decision_action == "fold" and min_amount < max_amount * 0.1:
+        if random() < 0.25:  # 25% de chance
+            logger.info("Overriding fold to call => style plus loose.")
+            decision_action = "call"
+            decision_amount = min_amount
+
+    # (b) Bluff aléatoire si adversaire passif (score < 0.3) et main < 3
+    if opponent_aggressiveness < 0.3 and hand_category < 3 and decision_action in ["call", "fold"]:
+        if random() < 0.2:
+            logger.info("Bluff raise vs passif, main < 3.")
+            bluff_size = max_amount * 0.08
+            if bluff_size <= min_amount:
+                # On ne peut pas raise en-dessous du min => on call
+                decision_action = "call"
+                decision_amount = min_amount
             else:
-                logger.info("Fold as the raise is too much")
-                return "fold", 0
-        else: 
-            logger.info("Fold as we got nothing good")
-            return "fold", 0
+                decision_action = "raise"
+                decision_amount = bluff_size
+
+    logger.info(f"Final preflop decision: {decision_action}, amount={decision_amount}")
+    return decision_action, decision_amount
