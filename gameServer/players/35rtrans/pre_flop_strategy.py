@@ -74,9 +74,20 @@ def get_pre_flop_action(
     print(f"Pot: {pot}")
     print(f"max amounts: {max_amount}")
     
-    # Check for Ace
-    # Check for high cards (Ace, King, Queen)
-    if action_histories['preflop'][-1]:        
+     # Function to get the latest action
+    def get_last_action(): 
+        #Fix to check if the action_histories is empty
+        if(not action_histories):
+            return None
+        for key, value in action_histories.items():
+            if value != []:
+                return value[-1]
+        return None    
+
+    #Gonna have to rewrite this part to get the last action
+    if not action_histories:
+        last_action = None
+    elif action_histories['preflop'][-1]:        
         last_action = action_histories['preflop'][-1]['action']
     else: 
         last_action = 'SMALLBLIND'
@@ -115,9 +126,12 @@ def get_pre_flop_action(
         return abs(values[0] - values[1]) <= 1
     if last_action == 'SMALLBLIND':
     #if True:
-        if isPair() and allValuesAbove(10) and isColorSame():
+        if (isPair() or allValuesAbove(10)) and isColorSame():
             logger.info("Raise as both cards are high and we have a pair and same color")
             return "raise", max_amount * 0.1
+        elif isPair() and allValuesAbove(10):
+            logger.info("Raise as both cards are high and we have a pair")
+            return "raise", max_amount * 0.08
          # Check for pairs
         elif isPair():
             logger.info("Raise as we have a pair")

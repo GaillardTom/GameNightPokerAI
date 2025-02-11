@@ -88,6 +88,9 @@ def get_card_action(
     
     # Function to get the latest action
     def get_last_action(): 
+        #Fix to check if the action_histories is empty
+        if(not action_histories):
+            return None
         for key, value in action_histories.items():
             if value != []:
                 return value[-1]
@@ -99,7 +102,9 @@ def get_card_action(
         #Check to see if we have raised during the preflop phase
         #If we have then we should call
         #If we have not then we should fold
-        
+        #Fix to check if the action_histories is empty hotfix
+        if not action_histories:
+            return False
         for action in action_histories.get("preflop", []):
             if action != []:
                 if action.get("action") == "RAISE":
@@ -109,6 +114,9 @@ def get_card_action(
     def sum_raises(action_histories, player_name):
         total_raises = 0  # Initialize the counter for raises
         
+        #Check to see if the action_histories is empty hotfix
+        if(not action_histories):
+            return 0
         # Loop through each phase in the action_histories
         for key, actions in action_histories.items():
             for action in actions:
@@ -119,11 +127,25 @@ def get_card_action(
         
         return total_raises
 
-    
+    def get_aggresitivity(): 
+        #Check to see if the action_histories is empty hotfix
+        if (not action_histories):
+            return 0
+        aggressive_count = 0 
+        # Loop through all the phases in the action_histories
+        for key, actions in action_histories.items():
+            for action in actions:
+                # Check if the action is a "RAISE" and not by the player_name
+                if action.get('action') == 'RAISE' and action.get('name') != player_name:
+                    aggressive_count += 1
+        
+        return aggressive_count 
     # Determine opponent's aggressiveness
     def is_opponent_aggressive():
         aggressive_count = 0 
-        
+        #Check to see if the action_histories is empty hotfix
+        if (not action_histories):
+            return False 
         # Loop through all the phases in the action_histories
         for key, actions in action_histories.items():
             for action in actions:
@@ -155,9 +177,9 @@ def get_card_action(
             if checkRaisePreflop(action_histories) and min_amount <= 5000:
                 logger.info(f"Hand strength {best_hand} is a pair but we raised preflop so let's keep it - raising")
                 return  raise_player(0.02)
-            elif min_amount < 10000: 
+            elif min_amount < 2500: 
                 logger.info(f"Hand strength {best_hand} is a pair and amount is less than 10000 - calling")
-                return "call", min_amount
+                return raise_player(0.01)
             else: 
                 logger.info(f"Hand strength {best_hand} is a pair but amount too high - folding")
                 return "fold", 0
@@ -166,12 +188,12 @@ def get_card_action(
                 return raise_player(0.3 if opponent_aggressive else 0.15)
         elif 2 <= best_hand < 7:
             if best_hand == 2: 
-                if min_amount < max_amount * 0.2 or min_amount <= 500:
+                if min_amount < max_amount * 0.2 or min_amount <= 13000:
                     if opponent_aggressive:
                         logger.info(f"Hand strength {best_hand} is a pair and opp aggressive - calling")
                         return "call", min_amount
                     else: 
-                        if min_amount <= 5000:
+                        if min_amount <= 10000:
                             logger.info(f"Hand strength {best_hand} is a pair and opp passive - raising")
                             return raise_player(0.01)
                         else:
@@ -182,19 +204,19 @@ def get_card_action(
                     return "fold", 0
             elif best_hand == 3:
                 logger.info("Hand strength is a three of a kind - raising")
-                return raise_player(0.02 if opponent_aggressive else 0.03)
+                return raise_player(0.08 if opponent_aggressive else 0.03)
             else: 
                 #We have a strong hand but not the strongest so we should call but maybe we could raise depending on the strategy
                 logger.info(f"Hand strength {best_hand} is strong waiting to see the turn - calling")
                 return "call", min_amount
-        elif 1 <= best_hand < 2:
-            if checkRaisePreflop(action_histories) and min_amount <= 1500:
+        elif best_hand == 1:
+            if checkRaisePreflop(action_histories) and min_amount <= 5500:
                 logger.info(f"Hand strength {best_hand} is weak but we raised let's juke this kid - raising")
                 return raise_player(0.03)
-            elif checkRaisePreflop(action_histories) and min_amount <= 9000:
+            elif checkRaisePreflop(action_histories) and min_amount <= 13000:
                 logger.info(f"Hand strength {best_hand} is weak but buyin too high but raised too much during preflop - calling")
                 return "call", min_amount
-            if min_amount < max_amount * 0.09 and min_amount <= 500:
+            if min_amount < max_amount * 0.09 and min_amount <= 1500:
                 logger.info(f"Hand strength {best_hand} is weak   - calling")
                 return "call", min_amount
             else: 
@@ -207,14 +229,14 @@ def get_card_action(
             if checkRaisePreflop(action_histories):
                 if min_amount < max_amount * 0.05 or min_amount <= 1500:
                     logger.info(f"Hand strength {best_hand} is weak but we raised so raising again to trick - raising")
-                    return raise_player(0.01)
+                    return raise_player(0.04)
                 else: 
                     logger.info(f"Hand strength {best_hand} is weak and raise too high - folding")
                     return "fold", 0
             else:
                 if min_amount < max_amount * 0.01 and min_amount <= 500:
                     #No high raise during the preflop phase so call 
-                    logger.info(f"Hand strength {best_hand} is weak - calling")
+                    logger.info(f"Hand strength {best_hand} is weak but buyin low - calling")
                     return "call", min_amount
                 else:
                     logger.info(f"Hand strength {best_hand} is weak - folding")
@@ -225,32 +247,33 @@ def get_card_action(
         if best_hand >= highest_hand and best_hand >= 2:
             if min_amount <= 50000:
                 logger.info("Hand strength is one of the best but raise too high - calling")
-                return raise_player(0.2)
-            else:
-                logger.info("Hand strength is one of the best raising a bit")
-                return raise_player(0.2 if opponent_aggressive else 0.3)
+                return raise_player(0.3 if opponent_aggressive else 0.2)
         elif best_hand >= highest_hand and best_hand == 1:
-            if min_amount < 5000:
-                logger.info("Hand strength is a pair - calling to see the river")
-                return "call", min_amount
+            if min_amount < 15000:
+                if checkRaisePreflop(action_histories):
+                    logger.info("Hand strength is weak but we raised preflop - raising")
+                    return raise_player(0.05)
+                else:
+                    logger.info("Hand strength is a pair - calling to see the river")
+                    return "call", min_amount
             else:
                 logger.info("Hand strength is a pair but buyin too high - folding")
                 return "fold", 0
         elif best_hand >= highest_hand and best_hand == 0:
             if min_amount <= 1000:
-                logger.info("Hand strength is weak - calling to see the river")
-                return "call", min_amount
+                if checkRaisePreflop(action_histories):
+                    logger.info("Hand strength is weak but we raised preflop - raising")
+                    return raise_player(0.05)
+                else:
+                    logger.info("Hand strength is weak - calling to see the river")
+                    return "call", min_amount
             else:
                 logger.info("Hand strength is weak but buyin too high - folding")
                 return "fold", 0
         elif best_hand >= 7:
             if min_amount < max_amount * 0.15:
-                if max_amount * (0.15 if opponent_aggressive else 0.3) < min_amount:
-                    logger.info(f"Hand strength {best_hand} is very strong - calling")
-                    return "call", min_amount
-                else:
                     logger.info(f"Hand strength {best_hand} is very strong - raising")
-                    return raise_player(0.15 if opponent_aggressive else 0.3)
+                    return raise_player(0.4 if opponent_aggressive else 0.3)
             else: 
                 logger.info(f"Hand strength {best_hand} is very strong but raise too high - calling")
                 return "call", min_amount
@@ -283,7 +306,7 @@ def get_card_action(
                     logger.info(f"Hand strength {best_hand} is moderate - folding")
                     return "fold", 0
         elif best_hand == 1:
-            if min_amount <= 5000:
+            if min_amount <= 8000:
                 logger.info(f"Hand strength {best_hand} is weak - calling")
                 return "call", min_amount
             else:
@@ -306,8 +329,23 @@ def get_card_action(
             else: 
                 logger.info("Hand strength is one of the best but opponent is aggressive - calling")
                 return "call", min_amount
-        elif best_hand >= highest_hand and best_hand <= 2:
-            if min_amount<50000:
+        elif best_hand >= highest_hand and best_hand == 2:
+            if min_amount < 40000:
+                if checkRaisePreflop(action_histories):
+                    logger.info("Hand strength is a pair but we raised preflop - raising")
+                    return raise_player(0.05)
+                else:
+                    logger.info("Hand strength is a pair - calling")
+                    return "call", min_amount
+            else:
+                if checkRaisePreflop(action_histories):
+                    logger.info("Hand strength is a pair but we raised preflop - Calling")
+                    return "call", min_amount
+                else:
+                    logger.info("Hand strength is a pair but buyin too high - folding")
+                    return "fold", 0
+        elif best_hand >= highest_hand and best_hand <= 1:
+            if min_amount<20000:
                 logger.info("Hand strength is a pair - calling")
                 return "call", min_amount
             else: 
@@ -327,7 +365,7 @@ def get_card_action(
                     logger.info("Hand strength is strong but opp aggressive - calling")
                     return "call", min_amount
                 else: 
-                    logger.info("Hand strength is strong and opp passive - raising")
+                    logger.info("Hand strength is strong compared to highest hand and opp passive - raising")
                     return raise_player(0.1)
             else: 
                 logger.info("Hand strength is strong but buyin too high - folding")
@@ -356,16 +394,8 @@ def get_card_action(
         elif 2 <= best_hand < 4:
             if best_hand >= 2 and highest_hand >= 5:
                 if min_amount <= 15000:
-                    if opponent_aggressive:
-                        if min_amount > 500:
-                            logger.info(f"Hand strength {best_hand} is too moderate and opponent is agressive - folding")
-                            return "fold", 0
-                        else: 
-                            logger.info(f"Hand strength {best_hand} is too moderate and opponent is agressive but buyin free - calling")
-                            return "call", min_amount
-                    else: 
-                        logger.info(f"Hand strength {best_hand} is moderate and opp is passive - calling")
-                        return "call", min_amount
+                    logger.info(f"Hand strength {best_hand} is moderate - calling")
+                    return "call", min_amount
                 else:
                     if opponent_aggressive:
                         logger.info(f"Hand strength {best_hand} is moderate - folding")

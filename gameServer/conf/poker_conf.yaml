@@ -16,7 +16,7 @@ ai_players:
 # A Sample player that is setup in the same way your submission should be setup
 - name: AI Player
   dir: /app/pypokergui/sample_player/team_ai_model
-  enabled: True
+  enabled: False
 - name: 35 Signals Regiment - last_model
   dir: /app/players/last_model
   enabled: False
