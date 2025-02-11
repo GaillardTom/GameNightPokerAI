@@ -71,6 +71,8 @@ def get_card_action(
     logger.info(f"Pot size: {pot}, Side pots: {side_pots}")
     logger.info(f"Minimum amount: {min_amount}, Maximum amount: {max_amount}")
 
+
+
     OPP_DRY = False
 
     # Function to determine the action to raise the player
@@ -272,7 +274,7 @@ def get_card_action(
             elif opponent_aggressive and min_amount < 10000: 
                 logger.info(f"Hand strength {best_hand} is moderate, opp aggressive but raise low - calling")
                 return "call", min_amount
-            elif current_raise >= 30000 or pot["amount"] >= 30000: 
+            elif current_raise >= 30000 or pot >= 30000:
                 logger.info(f"Hand strength {best_hand} is moderate but we raised more than 30k - calling")
                 return "call", min_amount
             else:
@@ -371,7 +373,7 @@ def get_card_action(
                         logger.info(f"Hand strength {best_hand} is moderate - folding")
                         return "fold", 0
                     else: 
-                        if current_raise > 20000 or pot["amount"] > 20000 and min_amount < max_amount * 0.18:
+                        if current_raise > 20000 or pot > 20000 and min_amount < max_amount * 0.18:
                             logger.info(f"Hand strength {best_hand} is moderate - calling")
                             return "call", min_amount
                         else: 
