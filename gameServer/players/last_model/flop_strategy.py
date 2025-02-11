@@ -1,439 +1,346 @@
+import math
+from random import randint, random
 
+# ------------------------ Paramètres Globaux ------------------------
+Q_TABLE_FLOP = {}         # Q‑table pour le FLOP (pour le Q-learning)
+ALPHA_PREFLOP = 0.1       # Taux d'apprentissage
 
+INITIAL_EPSILON = 0.3     # Epsilon initial pour l'exploration
+EPSILON_DECAY = 0.01      # Décroissance d'epsilon par appel
+INITIAL_TEMPERATURE = 1.0 # Température initiale pour softmax
+TEMPERATURE_DECAY = 0.005 # Décroissance de la température
 
+# ------------------------ Fonctions Utilitaires ------------------------
+
+def softmax(q_dict, temperature):
+    """Calcule la distribution softmax à partir d'un dictionnaire de Q‑valeurs."""
+    if not q_dict:
+        return {}
+    max_q = max(q_dict.values())
+    exp_vals = {act: math.exp((q - max_q) / temperature) for act, q in q_dict.items()}
+    total = sum(exp_vals.values())
+    return {act: exp_vals[act] / total for act in exp_vals} if total > 0 else {}
+
+def dynamic_epsilon(call_count, opp_aggr_ratio):
+    """Retourne un epsilon dynamique décroissant, mais augmenté si l'adversaire est agressif."""
+    epsilon = max(0.01, INITIAL_EPSILON / (1 + call_count * EPSILON_DECAY))
+    return epsilon * (1 + 0.5 * opp_aggr_ratio)
+
+def dynamic_temperature(call_count):
+    """Retourne une température dynamique décroissante pour la sélection softmax."""
+    return max(0.1, INITIAL_TEMPERATURE / (1 + call_count * TEMPERATURE_DECAY))
+
+def gain_multiplier(pot, min_amount):
+    """Retourne un multiplicateur de gain basé sur le ratio pot/min_amount, plafonné à 3."""
+    ratio = pot / min_amount if min_amount > 0 else 1
+    return min(ratio, 3)
+
+def shape_reward(base_reward, opp_aggr_ratio, opp_showdown_ratio, action, final_class, pot, min_amount):
+    """
+    Ajuste la récompense de base en tenant compte de l'agressivité adverse préflop (opp_aggr_ratio)
+    et de celle constatée au showdown (opp_showdown_ratio), ainsi que du potentiel de gain.
+    Les bonus sont renforcés pour les mains fortes face à des adversaires agressifs.
+    """
+    bonus = 1.0
+    if opp_aggr_ratio > 0.6:
+        if final_class in {"monster", "ultra_made", "premium"} and action in {"raise", "call"}:
+            bonus = 1.3
+        elif final_class in {"trash", "drawing"} and action == "raise":
+            bonus = 0.8
+    elif opp_aggr_ratio > 0.5:
+        if final_class in {"monster", "ultra_made", "premium"} and action in {"raise", "call"}:
+            bonus = 1.2
+        elif final_class in {"trash", "drawing"} and action == "raise":
+            bonus = 0.8
+    if opp_showdown_ratio > 0.6 and final_class not in {"monster", "ultra_made", "premium"}:
+        bonus *= 0.8  # Pénalité supplémentaire pour les mains faibles contre un opp très agressif au showdown
+    multiplier = gain_multiplier(pot, min_amount)
+    return base_reward * bonus * multiplier
+
+def parse_card(card):
+    """Extrait la couleur, le rang et la valeur numérique d'une carte."""
+    rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+                '8': 8, '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+    suit = card[0]
+    rank_str = card[1:]
+    rank_char = 'T' if rank_str == "10" else rank_str[0]
+    return suit, rank_char, rank_map.get(rank_char, 0)
+
+def classify_connectivity(hole_cards):
+    """
+    Évalue la connectivité des hole cards.
+      - Gap 0 (paire) → bonus de 2.0.
+      - Gap 1 → bonus de 1.0 si assorties, sinon 0.5.
+      - Gap 2 → bonus de 0.3.
+      - Bonus additionnel de 0.5 si les deux cartes sont hautes (≥10).
+      - Bonus supplémentaire de 0.5 si les cartes sont séquentielles.
+    """
+    s1, r1, v1 = parse_card(hole_cards[0])
+    s2, r2, v2 = parse_card(hole_cards[1])
+    gap = abs(v1 - v2)
+    bonus = 0.0
+    if gap == 0:
+        bonus = 2.0
+    elif gap == 1:
+        bonus = 1.0 if s1 == s2 else 0.5
+    elif gap == 2:
+        bonus = 0.3
+    if v1 >= 10 and v2 >= 10:
+        bonus += 0.5
+    # Bonus pour séquentialité (ex : 7-8, 10-J)
+    if gap == 1:
+        bonus += 0.5
+    return bonus
+
+def get_opponent_showdown_aggressiveness(player_name, action_histories):
+    """Calcule le ratio d'agressivité adverse constatée au showdown."""
+    count = 0
+    total = 0
+    if action_histories and "showdown" in action_histories:
+        for act in action_histories["showdown"]:
+            if act.get("actor") != player_name:
+                total += 1
+                if act.get("action").lower() in {"bet", "raise"}:
+                    count += 1
+    return (count / total) if total > 0 else 0
+
+# ------------------------ STRATÉGIE FLOP ------------------------
+CALL_COUNT_FLOP = 0
 
 def get_card_action(
     player_name,
-    best_hand,
-    highest_hand,
-    min_amount,
-    max_amount,
-    street,
-    pot,
-    side_pots,
+    best_hand,      # Évaluation numérique (1 à 9) de la main sur le FLOP
+    highest_hand,   # Score maximum sur le board
+    min_amount,     # Mise minimale requise
+    max_amount,     # Mise maximale autorisée
+    street,         # "flop"
+    pot,            # Taille du pot principal
+    side_pots,      # Non utilisé ici
     action_histories,
     logger,
 ):
     """
-    Determines the appropriate post-flop action (call, raise, or fold) based on the hole cards
-    and the betting amounts.
+    Stratégie FLOP avancée pour le Texas Hold’em.
 
-    Parameters:
-    - player_name (str): The name of your player - useful when looking at side pots / action histories
-    - best_hand (int): The numerical category of the player's best possible hand (1-9, with 9 being the best).
-    - highest_hand (int): The numerical category of the highest possible hand on the table.
-    - min_amount (float): The minimum amount to be matched or raised.
-    - max_amount (float): The maximum allowable amount for a bet or raise.
-    - street (str): preflop | flop | turn | river
-    - pot (float): The size of the main pot
-    - side_pots (list): If playing against more than one player this is a side pot.
-        [{'amount': 45, 'eligibles': ['Player 1']}]
-    - action_histories (dict):  A dict where the key is street of the game played so far. The value is a list of actions
-        that happened with the latest action being the last one in the list.
-        {
-        "preflop": [
-            { "action": "SMALLBLIND", "amount": 10, "add_amount": 10, "uuid": "1", "name": "Random Player" },
-            { "action": "BIGBLIND", "amount": 20, "add_amount": 10, "uuid": "2", "name": "AI Player" },
-            { "action": "CALL", "amount": 20, "paid": 20, "uuid": "0", "name": "Call Everything Player" },
-            { "action": "FOLD", "uuid": "1", "name": "Random Player" },
-            { "action": "CALL", "amount": 20, "paid": 0, "uuid": "2", "name": "AI Player" }
-        ],
-        "flop": [
-            { "action": "CALL", "amount": 0, "paid": 0, "uuid": "2", "name": "AI Player" },
-            { "action": "CALL", "amount": 0, "paid": 0, "uuid": "0", "name": "Call Everything Player" }
-            { "action": "RAISE", "amount": 15000, "paid": 15000, "uuid": "0", "name": "Call Everything Player" }
-        ],
-        "turn": [
-            { "action": "CALL", "amount": 0, "paid": 0, "uuid": "2", "name": "AI Player" },
-            { "action": "CALL", "amount": 0, "paid": 0, "uuid": "0", "name": "Call Everything Player" }
-        ],
-        "river": []
-        }
-    - logger (DcmLoggerWrapper): A logger which will add messages to match report.
-        Methods avialble are:
-        * error(str)
-        * warning(str)
-        * info(str)
-
-    Returns:
-    Tuple[str, float]: A tuple representing the recommended action and the corresponding amount.
-                      - If the action is "call," the amount is the minimum amount to be matched.
-                      - If the action is "raise," the amount is the recommended raise amount.
-                      - If the action is "fold," the amount is always 0.
-
-    Raises:
-    None
+    Intègre :
+      1. Évaluation de la main par trois approches (ensembles, Chen, Sklansky)
+         avec un bonus de connectivité et de séquentialité.
+      2. Fusion pondérée pour obtenir une classification finale (ex. "monster", "premium", etc.).
+      3. Arbre de décision adaptatif tenant compte du pot, des mises et de l'agressivité adverse.
+      4. Renforcement par Q‑learning avec epsilon dynamique, sélection softmax et reward shaping
+         intégrant également l'agressivité constatée au showdown.
     """
+    global CALL_COUNT_FLOP, Q_TABLE_FLOP
+    CALL_COUNT_FLOP += 1
+    logger.info(f"[FLOP] Phase: {street}")
+    logger.info(f"[FLOP] Best hand: {best_hand}, Highest board: {highest_hand}")
+    logger.info(f"[FLOP] Pot: {pot}, Min: {min_amount}, Max: {max_amount}")
 
-    # Log the current state
-    logger.info(f"Current street: {street}")
-    logger.info(f"Best hand: {best_hand}, Highest hand: {highest_hand}")
-    logger.info(f"Pot size: {pot}, Side pots: {side_pots}")
-    logger.info(f"Minimum amount: {min_amount}, Maximum amount: {max_amount}")
+    # Récupération de la dernière action dans la phase
+    def get_last_action_local(phase):
+        if action_histories and phase in action_histories and action_histories[phase]:
+            return action_histories[phase][-1]["action"].lower()
+        return None
+    last_act = get_last_action_local(street)
 
-    OPP_DRY = False
-
-    # Function to determine the action to raise the player
-    #Take in the amount_percent between 0 and 1 and return the action and the amount 
-    def raise_player(amount_percent):
-        desired_raise = max_amount * amount_percent
-        if OPP_DRY: 
-            return "call", min_amount
-        if desired_raise > max_amount:
-            return "raise", max_amount
-        if desired_raise > min_amount and desired_raise < max_amount:
-            return "raise", desired_raise
-        else:
-            return "call", min_amount
-    
-    # Function to get the latest action
-    def get_last_action(): 
-        for key, value in action_histories.items():
-            if value != []:
-                return value[-1]
-        return None        
-    
-    logger.info(f"Last Action: {get_last_action()}")        
-    
-    def checkRaisePreflop(action_histories):
-        #Check to see if we have raised during the preflop phase
-        #If we have then we should call
-        #If we have not then we should fold
-        
-        for action in action_histories.get("preflop", []):
-            if action != []:
-                if action.get("action") == "RAISE":
-                    return True
-        return False
-
-    def sum_raises(action_histories, player_name):
-        total_raises = 0  # Initialize the counter for raises
-        
-        # Loop through each phase in the action_histories
-        for key, actions in action_histories.items():
-            for action in actions:
-                # Check if the action is a "RAISE" and if the player's name matches
-                if action.get('action') == 'RAISE' and action.get('name') == player_name:
-                    # Add the "paid" value to the total raise amount
-                    total_raises += action.get('paid', 0)
-        
-        return total_raises
-
-    
-    # Determine opponent's aggressiveness
+    # Détection de l'agressivité adverse
     def is_opponent_aggressive():
-        aggressive_count = 0 
-        
-        # Loop through all the phases in the action_histories
-        for key, actions in action_histories.items():
-            for action in actions:
-                # Check if the action is a "RAISE" and not by the player_name
-                if action.get('action') == 'RAISE' and action.get('name') != player_name:
-                    aggressive_count += 1
-        
-        # Return True if there are 2 or more raises by opponents
-        return aggressive_count >= 2
+        count = 0
+        total = 0
+        if action_histories and "flop" in action_histories:
+            for act in action_histories["flop"]:
+                if act.get("actor") != player_name:
+                    total += 1
+                    if act.get("action").lower() in {"raise", "bet", "re-raise"}:
+                        count += 1
+        return (count >= 2), (count / total if total > 0 else 0)
+    opp_aggr, opp_aggr_ratio = is_opponent_aggressive()
+    logger.info(f"[FLOP] Opponent aggressiveness: {opp_aggr_ratio:.2f}")
 
-    current_raise = sum_raises(action_histories, player_name)
-    opponent_aggressive = is_opponent_aggressive()
-    logger.info(f"Opponent is {'aggressive' if opponent_aggressive else 'passive'}")
+    # Bonus de connectivité : utiliser "hole_cards" depuis l'historique si disponible
+    hole_cards_for_conn = action_histories.get("hole_cards", None)
+    if hole_cards_for_conn is None:
+        connectivity_bonus = 0.0
+    else:
+        connectivity_bonus = classify_connectivity(hole_cards_for_conn)
+    logger.info(f"[FLOP] Connectivity bonus: {connectivity_bonus:.2f}")
 
-    if min_amount <= 0:
-        OPP_DRY = True
-        min_amount = 500
-    if max_amount <= 0: 
-        OPP_DRY = True
-        max_amount = 501
-    # Determine strategy based on the stage of the game 
-    if street == "flop":
-        logger.info("Flop strategy")
-        #If we have the biggest hand then we should raise on the flop
-        if best_hand >= highest_hand and best_hand >= 2: 
-            logger.info(f"Hand strength {best_hand} is one of the best - raising")
-            return raise_player(0.2)
-        elif best_hand >= highest_hand and best_hand < 2:
-            if checkRaisePreflop(action_histories) and min_amount <= 5000:
-                logger.info(f"Hand strength {best_hand} is a pair but we raised preflop so let's keep it - raising")
-                return  raise_player(0.02)
-            elif min_amount < 10000: 
-                logger.info(f"Hand strength {best_hand} is a pair and amount is less than 10000 - calling")
-                return "call", min_amount
-            else: 
-                logger.info(f"Hand strength {best_hand} is a pair but amount too high - folding")
-                return "fold", 0
-        if best_hand >= 7:
-                logger.info(f"Hand strength {best_hand} is very strong - raising")
-                return raise_player(0.3 if opponent_aggressive else 0.15)
-        elif 2 <= best_hand < 7:
-            if best_hand == 2: 
-                if min_amount < max_amount * 0.2 or min_amount <= 500:
-                    if opponent_aggressive:
-                        logger.info(f"Hand strength {best_hand} is a pair and opp aggressive - calling")
-                        return "call", min_amount
-                    else: 
-                        if min_amount <= 5000:
-                            logger.info(f"Hand strength {best_hand} is a pair and opp passive - raising")
-                            return raise_player(0.01)
-                        else:
-                            logger.info(f"Hand strength {best_hand} is a pair and opp passive but amount is higher than 5000- calling")
-                            return "call", min_amount
-                else:
-                    logger.info(f"Hand strength {best_hand} is moderate but amount too much - folding")
-                    return "fold", 0
-            elif best_hand == 3:
-                logger.info("Hand strength is a three of a kind - raising")
-                return raise_player(0.02 if opponent_aggressive else 0.03)
-            else: 
-                #We have a strong hand but not the strongest so we should call but maybe we could raise depending on the strategy
-                logger.info(f"Hand strength {best_hand} is strong waiting to see the turn - calling")
-                return "call", min_amount
-        elif 1 <= best_hand < 2:
-            if checkRaisePreflop(action_histories) and min_amount <= 1500:
-                logger.info(f"Hand strength {best_hand} is weak but we raised let's juke this kid - raising")
-                return raise_player(0.03)
-            elif checkRaisePreflop(action_histories) and min_amount <= 9000:
-                logger.info(f"Hand strength {best_hand} is weak but buyin too high but raised too much during preflop - calling")
-                return "call", min_amount
-            if min_amount < max_amount * 0.09 and min_amount <= 500:
-                logger.info(f"Hand strength {best_hand} is weak   - calling")
-                return "call", min_amount
-            else: 
-                logger.info(f"Hand strength {best_hand} is moderate and raise too high - folding")
-                return "fold", 0
+    # Classification par méthodes classiques
+    def classify_flop_basic(best, highest):
+        if best == highest:
+            if best >= 8:
+                return "monster"
+            elif best == 7:
+                return "ultra_made"
+            elif best == 6:
+                return "premium"
+            elif best == 5:
+                return "very_strong"
+            elif best == 4:
+                return "strong"
+            else:
+                return "playable"
         else:
-            #Check to see if we have raised during the preflop phase
-            #If we have then we should call
-            #If we have not then we should fold
-            if checkRaisePreflop(action_histories):
-                if min_amount < max_amount * 0.05 or min_amount <= 1500:
-                    logger.info(f"Hand strength {best_hand} is weak but we raised so raising again to trick - raising")
-                    return raise_player(0.01)
-                else: 
-                    logger.info(f"Hand strength {best_hand} is weak and raise too high - folding")
-                    return "fold", 0
+            diff = highest - best
+            if diff == 1:
+                return "drawing"
+            elif diff == 2:
+                return "marginal_draw"
             else:
-                if min_amount < max_amount * 0.01 and min_amount <= 500:
-                    #No high raise during the preflop phase so call 
-                    logger.info(f"Hand strength {best_hand} is weak - calling")
-                    return "call", min_amount
-                else:
-                    logger.info(f"Hand strength {best_hand} is weak - folding")
-                    return "fold", 0
+                return "trash"
 
-    elif street == "turn":
-        logger.info("Turn strategy")
-        if best_hand >= highest_hand and best_hand >= 2:
-            if min_amount <= 50000:
-                logger.info("Hand strength is one of the best but raise too high - calling")
-                return raise_player(0.2)
+    def classify_flop_pro(best, highest):
+        if best == highest:
+            if best >= 8:
+                return "monster"
+            elif best == 7:
+                return "ultra_made"
+            elif best == 6:
+                return "premium"
+            elif best == 5:
+                return "very_strong"
+            elif best == 4:
+                return "strong"
             else:
-                logger.info("Hand strength is one of the best raising a bit")
-                return raise_player(0.2 if opponent_aggressive else 0.3)
-        elif best_hand >= highest_hand and best_hand == 1:
-            if min_amount < 5000:
-                logger.info("Hand strength is a pair - calling to see the river")
-                return "call", min_amount
-            else:
-                logger.info("Hand strength is a pair but buyin too high - folding")
-                return "fold", 0
-        elif best_hand >= highest_hand and best_hand == 0:
-            if min_amount <= 1000:
-                logger.info("Hand strength is weak - calling to see the river")
-                return "call", min_amount
-            else:
-                logger.info("Hand strength is weak but buyin too high - folding")
-                return "fold", 0
-        elif best_hand >= 7:
-            if min_amount < max_amount * 0.15:
-                if max_amount * (0.15 if opponent_aggressive else 0.3) < min_amount:
-                    logger.info(f"Hand strength {best_hand} is very strong - calling")
-                    return "call", min_amount
-                else:
-                    logger.info(f"Hand strength {best_hand} is very strong - raising")
-                    return raise_player(0.15 if opponent_aggressive else 0.3)
-            else: 
-                logger.info(f"Hand strength {best_hand} is very strong but raise too high - calling")
-                return "call", min_amount
-        elif 4 <= best_hand < 7:
-            if min_amount <= 60000:
-                logger.info(f"Hand strength {best_hand} is strong - raising")
-                return raise_player(best_hand / (10.0 if opponent_aggressive else 8.0))
-            else:
-                logger.info(f"Hand strength {best_hand} is strong but raise too high - folding")
-                return "fold", 0
-        elif 2 <= best_hand < 4:
-            if not opponent_aggressive:
-                if min_amount >= 10000: 
-                    logger.info(f"Hand strength {best_hand} is moderate, opp passive - calling")
-                    return "call", min_amount
-                else:
-                    logger.info(f"Hand strength {best_hand} is moderate, opp passive - raising")
-                    return raise_player(0.05)
-            elif opponent_aggressive and min_amount < 10000: 
-                logger.info(f"Hand strength {best_hand} is moderate, opp aggressive but raise low - calling")
-                return "call", min_amount
-            elif current_raise >= 30000 or pot["amount"] >= 30000: 
-                logger.info(f"Hand strength {best_hand} is moderate but we raised more than 30k - calling")
-                return "call", min_amount
-            else:
-                if min_amount <= 15000: 
-                    logger.info(f"Hand strength {best_hand} is moderate - calling")
-                    return "call", min_amount
-                else:
-                    logger.info(f"Hand strength {best_hand} is moderate - folding")
-                    return "fold", 0
-        elif best_hand == 1:
-            if min_amount <= 5000:
-                logger.info(f"Hand strength {best_hand} is weak - calling")
-                return "call", min_amount
-            else:
-                logger.info(f"Hand strength {best_hand} is too weak, buyin too high - folding")
-                return "fold", 0
+                return "playable"
         else:
-            if min_amount < max_amount * 0.01 and min_amount <= 500:
-                logger.info(f"Hand strength {best_hand} is weak - calling")
-                return "call", min_amount
+            diff = highest - best
+            if diff == 1:
+                return "drawing"
+            elif diff == 2:
+                return "marginal_draw"
             else:
-                logger.info(f"Hand strength {best_hand} is weak - folding")
-                return "fold", 0
+                return "trash"
 
-    elif street == "river":
-        logger.info("River strategy")
-        if best_hand >= highest_hand and best_hand > 2:
-            if not opponent_aggressive:
-                logger.info("Hand strength is one of the best - all in baby")
-                return raise_player(0.5)
-            else: 
-                logger.info("Hand strength is one of the best but opponent is aggressive - calling")
-                return "call", min_amount
-        elif best_hand >= highest_hand and best_hand <= 2:
-            if min_amount<50000:
-                logger.info("Hand strength is a pair - calling")
-                return "call", min_amount
-            else: 
-                if opponent_aggressive:
-                    logger.info(f"Hand strength is {best_hand} but buyin too high - folding")
-                    return "fold", 0
-                else: 
-                    if min_amount < 50000:
-                        logger.info("Hand strength is a pair - calling")
-                        return "call", min_amount
-                    else: 
-                        logger.info(f"Hand strength is {best_hand} but buyin too high - folding")
-                        return "fold", 0
-        elif best_hand >= highest_hand - 1 and best_hand > 1: 
-            if min_amount < 50000:
-                if opponent_aggressive:
-                    logger.info("Hand strength is strong but opp aggressive - calling")
-                    return "call", min_amount
-                else: 
-                    logger.info("Hand strength is strong and opp passive - raising")
-                    return raise_player(0.1)
-            else: 
-                logger.info("Hand strength is strong but buyin too high - folding")
-                return "fold", 0
-        elif best_hand >= 7:
-            logger.info(f"Hand strength {best_hand} is very strong - raising")
-            return raise_player(0.85 if opponent_aggressive else 0.9)
-        elif 4 <= best_hand < 7:
-            logger.info(f"Hand strength {best_hand} is strong - raising")
-            return raise_player(0.15)
-        elif best_hand == 2 and highest_hand == 2:
-            logger.info(f"Hand strength {best_hand} is a pair and the highest hand - raising")
-            return raise_player(0.05)
-        elif best_hand == 3 and highest_hand >= 5: 
-            if not opponent_aggressive:
-                logger.info(f"Hand strength {best_hand} is a three of a kind - raising")
-                return raise_player(0.5)
-            else: 
-                logger.info(f"Hand strength {best_hand} is a three of a kind - calling")
-                if min_amount < 50000:
-                    logger.info(f"Hand strength {best_hand} is a three of a kind - calling")
-                    return "call", min_amount
-                else:
-                    logger.info(f"Hand strength {best_hand} is a three of a kind but highest_hand is greater than 5 and buyin too high - folding")
-                    return "fold", 0
-        elif 2 <= best_hand < 4:
-            if best_hand >= 2 and highest_hand >= 5:
-                if min_amount <= 15000:
-                    if opponent_aggressive:
-                        if min_amount > 500:
-                            logger.info(f"Hand strength {best_hand} is too moderate and opponent is agressive - folding")
-                            return "fold", 0
-                        else: 
-                            logger.info(f"Hand strength {best_hand} is too moderate and opponent is agressive but buyin free - calling")
-                            return "call", min_amount
-                    else: 
-                        logger.info(f"Hand strength {best_hand} is moderate and opp is passive - calling")
-                        return "call", min_amount
-                else:
-                    if opponent_aggressive:
-                        logger.info(f"Hand strength {best_hand} is moderate - folding")
-                        return "fold", 0
-                    else: 
-                        if current_raise > 20000 or pot["amount"] > 20000 and min_amount < max_amount * 0.18:
-                            logger.info(f"Hand strength {best_hand} is moderate - calling")
-                            return "call", min_amount
-                        else: 
-                            if opponent_aggressive and min_amount < 30000:
-                                logger.info(f"Hand strength {best_hand} is moderate but opp aggressive - folding")
-                                return "fold", 0
-                            else: 
-                                logger.info(f"Hand strength {best_hand} is moderate but opp passive - calling")
-                                return "call", min_amount
-            #else if we have a pair and the highest hand is a pair then we should raise
-            elif best_hand == 2 and highest_hand == 2:
-                if opponent_aggressive:
-                    logger.info(f"Hand strength {best_hand} is a pair and the highest hand - calling")
-                    return "call", min_amount
-                else: 
-                    if min_amount <= max_amount * 0.08:
-                        logger.info(f"Hand strength {best_hand} is a pair and the highest hand - raising")
-                        return raise_player(0.08)
-                    else: 
-                        logger.info(f"Hand strength {best_hand} is a pair and the highest hand - calling")
-                        return "call", min_amount
-            elif best_hand == 3 and highest_hand >= 5: 
-                if not opponent_aggressive:
-                    logger.info(f"Hand strength {best_hand} is a three of a kind - raising")
-                    return raise_player(0.2)
-                else: 
-                    if min_amount < 20000:
-                        logger.info(f"Hand strength {best_hand} is a three of a kind - calling")
-                        return "call", min_amount
-                    else:
-                        logger.info(f"Hand strength {best_hand} is a three of a kind but buyin too high and highest hand greater than 5 - folding")
-                        return "fold", 0
-            elif min_amount < max_amount * 0.08 or min_amount <= 500:
-                logger.info(f"Hand strength {best_hand} is moderate - calling")
-                return "call", min_amount
-            else: 
-                logger.info(f"Hand strength {best_hand} is moderate but buyin too high - folding")
-                return "fold", 0
-        elif best_hand == 1:
-            if min_amount <= 1000:
-                if opponent_aggressive:
-                    logger.info(f"Hand strength {best_hand} is weak - calling")
-                    return "call", min_amount
-                else: 
-                    logger.info(f"Hand strength {best_hand} is weak - calling")
-                    return "call", min_amount
-            else:
-                logger.info(f"Hand strength {best_hand} is weak - folding")
-                return "fold", 0
+    basic_class = classify_flop_basic(best_hand, highest_hand)
+    pro_class = classify_flop_pro(best_hand, highest_hand)
+    score_map = {
+        "monster": 9, "ultra_made": 8, "premium": 7, "very_strong": 6,
+        "strong": 5, "playable": 4, "drawing": 3, "marginal_draw": 2, "trash": 1
+    }
+    s_basic = score_map.get(basic_class, 1)
+    s_pro = score_map.get(pro_class, 1)
+    weighted_avg = 0.3 * s_basic + 0.4 * s_pro + 0.3 * connectivity_bonus
+
+    if weighted_avg >= 8:
+        final_class = "monster"
+    elif weighted_avg >= 7:
+        final_class = "ultra_made"
+    elif weighted_avg >= 6:
+        final_class = "premium"
+    elif weighted_avg >= 5:
+        final_class = "very_strong"
+    elif weighted_avg >= 4:
+        final_class = "strong"
+    elif weighted_avg >= 3:
+        final_class = "playable"
+    elif weighted_avg >= 2:
+        final_class = "drawing"
+    else:
+        final_class = "trash"
+
+    logger.info(f"[FLOP] Classification: basic={basic_class}, pro={pro_class} -> Final: {final_class}")
+
+    # ------------------ Arbre de Décision FLOP ------------------
+    action = "fold"
+    amount = 0.0
+    if final_class in {"monster", "ultra_made"}:
+        if opp_aggr_ratio > 0.6:
+            action = "raise"
+            amount = max(min_amount, pot * 0.50)
         else:
-            if min_amount <= 800:
-                logger.info(f"Min buyin: {min_amount} Hand strength {best_hand} is weak but raise low - calling")
-                return "call", min_amount
-            else: 
-                logger.info(f"Min buyin: {min_amount} Hand strength {best_hand} is weak - folding")
-                return "fold", 0
+            if opp_aggr:
+                if random() < 0.3:
+                    action = "call"
+                    amount = min_amount
+                    logger.info("[FLOP] Slow play activated (aggressive opponent).")
+                else:
+                    action = "raise"
+                    amount = max(min_amount, pot * 0.45)
+            else:
+                if last_act in {None, "check"}:
+                    action = "raise"
+                    amount = max(min_amount, pot * 0.40)
+                else:
+                    action = "raise"
+                    amount = max(min_amount, pot * 0.50)
+    elif final_class in {"premium", "very_strong"}:
+        action = "raise" if min_amount < pot * 0.15 else "call"
+        amount = max(min_amount, pot * 0.20) if action == "raise" else min_amount
+    elif final_class in {"playable"}:
+        action = "raise" if min_amount < pot * 0.10 else "call"
+        amount = max(min_amount, pot * 0.12) if action == "raise" else min_amount
+    elif final_class in {"drawing", "marginal_draw"}:
+        action = "call" if min_amount <= pot * 0.10 else "fold"
+        amount = min_amount if action == "call" else 0
+    else:
+        action = "fold"
+        amount = 0
 
-    # Default action if no specific strategy is applied
-    if min_amount <= 500:
-        logger.info("Default action - calling")
-        return "call", min_amount
-    else: 
-        logger.info("Default action - folding")
-        return "fold", 0
-  
+    if get_last_action_local(street) in {"raise", "bet", "re-raise"}:
+        if final_class not in {"monster", "ultra_made", "premium", "very_strong", "strong"}:
+            logger.info("[FLOP] Aggressive action detected with weak hand -> fold")
+            action = "fold"
+            amount = 0
+        elif final_class in {"monster", "ultra_made"} and action == "raise":
+            amount = max(min_amount, pot * 0.50)
+    logger.info(f"[FLOP] Initial decision: {action} with amount: {amount}")
+
+    # ------------------ Renforcement par Q-learning ------------------
+    epsilon = dynamic_epsilon(CALL_COUNT_FLOP, opp_aggr_ratio)
+    temperature = dynamic_temperature(CALL_COUNT_FLOP)
+    possible_actions = ["fold", "call", "raise"]
+    q_vals = {act: Q_TABLE_FLOP.get((final_class, act), 0) for act in possible_actions}
+    if random() < epsilon:
+        chosen_action = possible_actions[randint(0, len(possible_actions)-1)]
+        logger.info(f"[FLOP] Random exploration selected: {chosen_action}")
+    else:
+        probs = softmax(q_vals, temperature)
+        r_val = random()
+        cumulative = 0.0
+        chosen_action = None
+        for act, prob in probs.items():
+            cumulative += prob
+            if r_val < cumulative:
+                chosen_action = act
+                break
+        if chosen_action is None:
+            chosen_action = max(q_vals, key=q_vals.get)
+    if q_vals.get(chosen_action, 0) > q_vals.get(action, 0) + 0.3:
+        logger.info(f"[FLOP] Q-learning adjustment: replacing {action} with {chosen_action}")
+        action = chosen_action
+        if action == "fold":
+            amount = 0
+        elif action == "call":
+            amount = min_amount
+        elif action == "raise":
+            if final_class in {"monster", "ultra_made"}:
+                amount = max(min_amount, pot * 0.50)
+            elif final_class in {"premium", "very_strong"}:
+                amount = max(min_amount, pot * 0.30)
+            elif final_class in {"playable"}:
+                amount = max(min_amount, pot * 0.15)
+            else:
+                amount = max(min_amount, pot * 0.10)
+    logger.info(f"[FLOP] Final decision after Q-learning: {action} with amount: {amount}")
+
+    # ------------------ Mise à jour de la Q-table ------------------
+    if final_class in {"ultra_premium", "premium"}:
+        base_reward = 1.5 if action == "raise" else 1.0 if action == "call" else -2.0
+    elif final_class in {"very_strong", "strong"}:
+        base_reward = 1.2 if action in {"raise", "call"} else -1.2
+    elif final_class in {"playable"}:
+        base_reward = 0.8 if action in {"raise", "call"} else -0.8
+    elif final_class in {"speculative", "marginal"}:
+        base_reward = 0.6 if action == "call" else -1.0
+    else:
+        base_reward = 1.0 if action == "fold" else -1.5
+
+    opp_showdown_ratio = get_opponent_showdown_aggressiveness(player_name, action_histories)
+    reward = shape_reward(base_reward, opp_aggr_ratio, opp_showdown_ratio, action, final_class, pot, min_amount)
+    key = (final_class, action)
+    prev_q = Q_TABLE_FLOP.get(key, 0)
+    Q_TABLE_FLOP[key] = (1 - ALPHA_PREFLOP) * prev_q + ALPHA_PREFLOP * reward
+    logger.info(f"[FLOP] Q_TABLE updated for {key}: {Q_TABLE_FLOP[key]:.2f} (reward: {reward})")
+    
+    return action, amount
