@@ -20,13 +20,20 @@ ai_players:
 - name: 35 Signals Regiment - last_model
   dir: /app/players/last_model
   enabled: False
-- name: 35 Signals Regiment - GPTo1
+- name: GPTo1
   dir: /app/players/gpto1
   enabled: False
 - name: 35 Signals Regiment - 35rtrans
   dir: /app/players/35rtrans
-  enabled: True
+  enabled: False
 - name: 35 Signals Regiment - emile
   dir: /app/players/emile
   enabled: False
+- name: 35 Signals Regiment - emilev2
+  dir: /app/players/emile2
+  enabled: False
+- name: 35 Signals Regiment - allin
+  dir: /app/players/allin
+  enabled: True
+
 
