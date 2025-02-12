@@ -57,8 +57,8 @@ def print_win_percentage(team_name):
         win_count = lines.count(team_name)
         total_count = len(lines) - 1  # Subtract 1 for the last empty line
         win_percentage = (win_count / total_count) * 100 if total_count > 0 else 0
-        # print(f"Win percentage: {win_percentage}%")
-        print(f"[{datetime.today()}] Current win percentage {team_name} : {win_percentage} % - Total game played {total_count}")
+        print(
+            f"[{datetime.today()}] Current win percentage {team_name} : {win_percentage:.2f}% - Total games played: {total_count}")
     except FileNotFoundError:
         print("File not found")
         return 0
@@ -72,7 +72,7 @@ async def run_websocket_command(host_port, command, container_id, iteration):
         error = False
         while not end_of_game and not error:
             async with websockets.connect(uri, ping_interval=None, ping_timeout=180) as websocket:
-                print(f"[Connection] Iteration {iteration} for {container_id}")
+                #print(f"[Connection] Iteration {iteration} for {container_id}")
                 if not game_started:
                     await websocket.send(command)
                 game_started = True
@@ -110,12 +110,12 @@ async def run_websocket_command(host_port, command, container_id, iteration):
 async def container_loop(container_id, host_port, iterations):
     for i in range(iterations):
 
-        print(f"Container {container_id} - port {host_port} - iteration {i + 1}")
+        # print(f"Container {container_id} - port {host_port} - iteration {i + 1}")
         # Leave time for container to boot
         await asyncio.sleep(5)
         await run_websocket_command(host_port, json.dumps({"type": "action_start_game"}), container_id, i + 1)
 
-        print(f"Reboot container {container_id}...")
+        #print(f"Reboot container {container_id}...")
         try:
             await asyncio.to_thread(
                 subprocess.run,
