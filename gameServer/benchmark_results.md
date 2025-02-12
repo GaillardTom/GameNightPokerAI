@@ -12,7 +12,7 @@ combinaison1 52% based on 2972 games
 ### combinaison2 vs AI Player 
 - preflop emile1
 - flop 35rtrans
-combinaison1 52% based on 2972 games
+combinaison2 73% based on 827 games
 
 #Versus Others
 
