@@ -47,7 +47,19 @@ ai_players:
 
 - name: 35 Signals Regiment - combinaison1
   dir: /app/players/combinaison1
+  enabled: False
+
+- name: 35 Signals Regiment - combinaison2
+  dir: /app/players/combinaison2
+  enabled: False
+
+- name: 35 Signals Regiment - combinaison3
+  dir: /app/players/combinaison3
   enabled: True
+
+- name: 35 Signals Regiment - gpto1v2
+  dir: /app/players/gpto1v2
+  enabled: False
 
 - name: allin
   dir: /app/players/allin
