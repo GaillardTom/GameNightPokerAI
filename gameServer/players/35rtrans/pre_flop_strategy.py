@@ -92,7 +92,10 @@ def get_pre_flop_action(
         min_amount = 1
     elif max_amount <= 0: 
         max_amount = 10
-    
+
+    if min_amount <= 500 and max_amount >= 1000:
+        logger.info("Calling is cheap, let's do this")
+        return "call", min_amount
 
     #Helper function
     def isColorSame():
@@ -288,6 +291,6 @@ def get_pre_flop_action(
             else:
                 logger.info("Fold as the raise is too much")
                 return "fold", 0
-        else: 
+        else:
             logger.info("Fold as we got nothing good")
             return "fold", 0
