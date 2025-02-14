@@ -1,0 +1,89 @@
+from random import randint
+
+def get_pre_flop_action(player_name, hole_cards, min_amount, max_amount, street, pot, side_pots, action_histories, logger):
+    card_rank_map = {'A': 14, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+                     '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13}
+
+    values = sorted([card_rank_map[card[1]] for card in hole_cards], reverse=True)
+
+    logger.info(f"Player {player_name} has hole cards {hole_cards}")
+    logger.info(f"Min amount: {min_amount}, Max amount: {max_amount}, Pot: {pot}")
+    logger.info(f"Actions history: {action_histories}")
+
+    last_action = action_histories['preflop'][-1]['action'] if action_histories['preflop'] else 'SMALLBLIND'
+
+    def isColorSame():
+        return hole_cards[0][0] == hole_cards[1][0]
+
+    def isPair():
+        return values[0] == values[1]
+
+    def allValuesAbove(lowest_card):
+        return all(value > lowest_card for value in values)
+
+    def anyValueAbove(lowest_card):
+        return any(value > lowest_card for value in values)
+
+    def checkPotentialStraight():
+        return abs(values[0] - values[1]) <= 3
+
+    def decide_action(action, amount):
+        logger.info(f"Decided to {action} with amount {amount}")
+        return action, amount
+
+    if last_action == 'SMALLBLIND':
+        if isPair() and allValuesAbove(9):
+            return decide_action("raise", max_amount * 0.2)
+        elif anyValueAbove(11):
+            return decide_action("raise", max_amount * 0.15)
+        elif checkPotentialStraight() and isColorSame():
+            return decide_action("raise", max_amount * 0.1)
+        elif isPair():
+            return decide_action("raise", max_amount * 0.08)
+        elif checkPotentialStraight() or isColorSame():
+            if min_amount < max_amount * 0.05:
+                return decide_action("raise", max_amount * 0.05)
+        elif min_amount < max_amount * 0.03:
+            return decide_action("call", min_amount)
+        return decide_action("fold", 0)
+
+    elif last_action == "BIGBLIND":
+        if isPair() and allValuesAbove(9):
+            return decide_action("raise", max_amount * 0.25)
+        elif anyValueAbove(11):
+            return decide_action("raise", max_amount * 0.2)
+        elif isPair() or (isColorSame() and anyValueAbove(9)):
+            return decide_action("raise", max_amount * 0.15)
+        elif checkPotentialStraight() or (isColorSame() and anyValueAbove(7)):
+            if min_amount < max_amount * 0.1:
+                return decide_action("raise", max_amount * 0.1)
+            else:
+                return decide_action("call", min_amount)
+        elif min_amount < max_amount * 0.05:
+            return decide_action("call", min_amount)
+        return decide_action("fold", 0)
+
+    else:  # Other positions
+        if isPair() and allValuesAbove(11):
+            return decide_action("raise", max(max_amount * 0.3, min_amount * 3))
+        elif allValuesAbove(11):
+            return decide_action("raise", max(max_amount * 0.25, min_amount * 2.5))
+        elif isPair() and allValuesAbove(7):
+            return decide_action("raise", max(max_amount * 0.2, min_amount * 2))
+        elif anyValueAbove(12) or (isColorSame() and anyValueAbove(10)):
+            if min_amount < max_amount * 0.15:
+                return decide_action("raise", max(max_amount * 0.15, min_amount * 1.5))
+            else:
+                return decide_action("call", min_amount)
+        elif checkPotentialStraight() and isColorSame():
+            if min_amount < max_amount * 0.1:
+                return decide_action("call", min_amount)
+        
+        # Occasional semi-bluff with position
+        if randint(1, 6) == 1 and min_amount < max_amount * 0.08:
+            return decide_action("raise", max_amount * 0.08)
+        
+        if min_amount < max_amount * 0.05:
+            return decide_action("call", min_amount)
+        
+        return decide_action("fold", 0)
