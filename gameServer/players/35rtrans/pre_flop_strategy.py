@@ -1,6 +1,15 @@
 
 from random import randint
 
+def call_if_low_or_fold(logger, min_amount, max_amount, folding_log):
+    if min_amount <= 500 and max_amount >= 1000:
+        logger.info("Calling is cheap, let's do this")
+        return "call", min_amount
+    else:
+        logger.info(folding_log)
+        return "fold", 0
+
+
 def get_pre_flop_action(
     player_name,
     hole_cards,
@@ -93,9 +102,7 @@ def get_pre_flop_action(
     elif max_amount <= 0: 
         max_amount = 10
 
-    if min_amount <= 500 and max_amount >= 1000:
-        logger.info("Calling is cheap, let's do this")
-        return "call", min_amount
+
 
     #Helper function
     def isColorSame():
@@ -207,8 +214,7 @@ def get_pre_flop_action(
                 logger.info("Fold as the raise is too much")
                 return "fold", 0
         else:
-            logger.info("Fold as we got nothing good and we are the small blind")
-            return "fold", 0
+            return call_if_low_or_fold(logger, min_amount, max_amount, "Folding since smallblind, got nothing and raise to high.")
     elif last_action == "CALL":
         if isPair(): 
             logger.info("Raise a bit as we have a pair")
@@ -222,7 +228,7 @@ def get_pre_flop_action(
             if min_amount < 5000:
                 logger.info("call as we have a high card")
                 return "call", min_amount
-            else: 
+            else:
                 logger.info("Got high card but Fold as the raise is too high")
                 return "fold", 0
         elif abs(values[0] - values[1]) <= 2:
@@ -274,9 +280,9 @@ def get_pre_flop_action(
             if(min_amount < max_amount * 0.6):
                 logger.info("Call as both cards are high")
                 return "call", min_amount
-            else: 
-                logger.info("Fold as the raise is too much but cards are high")
-                return "fold", 0
+            else:
+                return call_if_low_or_fold(logger, min_amount, max_amount,
+                                           "Fold as the raise is too much but cards are high")
         elif anyValueAbove(10):
             if(min_amount <= 5000 and pot < 4000):
                 logger.info("Call as we have a high card")
@@ -292,5 +298,5 @@ def get_pre_flop_action(
                 logger.info("Fold as the raise is too much")
                 return "fold", 0
         else:
-            logger.info("Fold as we got nothing good")
-            return "fold", 0
+            return call_if_low_or_fold(logger, min_amount, max_amount,
+                                       "Fold as we got nothing good")
