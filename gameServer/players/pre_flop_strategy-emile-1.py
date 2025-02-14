@@ -14,7 +14,7 @@ def get_pre_flop_action(
     """
     Détermine l'action préflop (call, raise, ou fold) en fonction des cartes fermées et des montants à miser.
 
-    Cette version corrige la passivité observée chez 35 signals, qui limpe ou call avec des holdings marginales
+    Cette version corrige la passivité observée qui limpe ou call avec des holdings marginales
     (par exemple, 8-5 suited ou 3-4 off suit) et finit par folder face à un gros raise adverse.
     Au lieu de cela, on force dès le début soit un re‑raise agressif, soit, dans le pire des cas, un fold,
     afin de ne pas céder l'initiative et de récupérer l'initiative préflop.
