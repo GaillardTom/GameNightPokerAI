@@ -12,7 +12,7 @@ from websockets import ConnectionClosedError
 NUM_CONTAINERS = 10  # Number of container to spawn
 ITERATIONS = 20  # Iteration per container
 STARTING_PORT = 8001  # Starting port, keep 8000 free for manual testing
-TEAM_NAME = "35 Signals Regiment"
+TEAM_NAME = "35 Signals Regiment - 35rtrans"
 DATE = datetime.today().strftime("%d_%m_%H_%M_%S")
 PATH_TO_WRITE = f"latest_game_{DATE}.txt"
 RESULT_PATH = "./test_results/"

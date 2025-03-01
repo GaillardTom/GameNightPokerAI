@@ -30,7 +30,7 @@ ai_players:
 
 - name: 35 Signals Regiment - 35rtrans
   dir: /app/players/35rtrans
-  enabled: False
+  enabled: True
 
 
 - name: 35 Signals Regiment - emile
@@ -47,7 +47,7 @@ ai_players:
 
 - name: 35 Signals Regiment - combinaison1
   dir: /app/players/combinaison1
-  enabled: True
+  enabled: False
 
 - name: allin
   dir: /app/players/allin
